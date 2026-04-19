@@ -1,0 +1,174 @@
+@font-face {
+  font-family: 'Advent Sans Logo';
+  src: url('./font/Advent Sans-Logo.otf') format('opentype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Arial Local';
+  src: url('./font/arial.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto SemiCondensed Regular';
+  src: url('./font/Roboto_SemiCondensed-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed Medium';
+  src: url('./font/Roboto_Condensed-Medium.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed Bold';
+  src: url('./font/Roboto_Condensed-Bold.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto Condensed Black';
+  src: url('./font/Roboto_Condensed-Black.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto ExtraLight';
+  src: url('./font/Roboto-ExtraLight.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root {
+  --ui-font-size: clamp(13px, 0.34vw + 12px, 18px);
+  --control-font-size: clamp(0.82rem, 0.22vw + 0.78rem, 1.05rem);
+  --control-min-height: clamp(2.25rem, 4.8vw, 3.2rem);
+}
+
+html {
+  font-size: var(--ui-font-size);
+}
+
+button,
+input,
+select,
+textarea {
+  font-size: var(--control-font-size);
+}
+
+button {
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  touch-action: manipulation;
+}
+
+input:not([type='range']):not([type='color']),
+select,
+textarea {
+  min-height: clamp(2.2rem, 4.5vw, 3rem);
+}
+
+body {
+  font-family: 'Montserrat', sans-serif;
+  background: linear-gradient(135deg, #8ecae6 0%, #219ebc 100%);
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
+
+body, html {
+  scrollbar-width: thin;
+  -ms-overflow-style: auto;
+}
+
+body::-webkit-scrollbar,
+html::-webkit-scrollbar,
+#root::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+body::-webkit-scrollbar-thumb,
+html::-webkit-scrollbar-thumb,
+#root::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 120, 120, 0.35);
+  border-radius: 999px;
+}
+
+.settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.45) transparent;
+}
+
+.settings-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(120, 120, 120, 0.35);
+  border-radius: 999px;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(120, 120, 120, 0.55);
+}
+
+@keyframes confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--confetti-x, 60px), var(--confetti-y, 140px), 0) rotate(var(--confetti-rot, 180deg)) scale(1);
+  }
+}
+
+.confetti-piece {
+  position: absolute;
+  border-radius: 999px;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+  filter: saturate(1.35) brightness(1.08);
+  animation-name: confetti-burst;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation-fill-mode: both;
+}
+
+@keyframes firework-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.35);
+  }
+  14% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--fw-x, 120px), var(--fw-y, -260px), 0) rotate(var(--fw-rot, 180deg)) scale(1.15);
+  }
+}
+
+.firework-piece {
+  position: absolute;
+  border-radius: 999px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.65);
+  animation-name: firework-burst;
+  animation-timing-function: cubic-bezier(0.16, 0.84, 0.24, 1);
+  animation-fill-mode: both;
+}
+
