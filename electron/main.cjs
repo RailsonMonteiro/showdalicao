@@ -3,9 +3,15 @@ const fs = require('node:fs/promises');
 const path = require('path');
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
+const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
 
 function getQuestionsFilePath() {
-  return path.join(app.getAppPath(), 'questions.ts');
+  return path.join(app.getPath('userData'), QUESTIONS_STORAGE_FILE);
+}
+
+async function ensureQuestionsStorageDir() {
+  const questionsPath = getQuestionsFilePath();
+  await fs.mkdir(path.dirname(questionsPath), { recursive: true });
 }
 
 function asString(value, fallback = '') {
@@ -76,10 +82,11 @@ ipcMain.handle('questions:clear', async () => {
   ].join('\n');
 
   try {
+    await ensureQuestionsStorageDir();
     await fs.writeFile(questionsPath, emptyContent, 'utf8');
     return { ok: true, path: questionsPath };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Falha ao limpar questions.ts' };
+    return { ok: false, error: error instanceof Error ? error.message : 'Falha ao limpar o arquivo de perguntas' };
   }
 });
 
@@ -88,6 +95,7 @@ ipcMain.handle('questions:save', async (_event, payload) => {
   const content = buildQuestionsFileContent(payload);
 
   try {
+    await ensureQuestionsStorageDir();
     await fs.writeFile(questionsPath, content, 'utf8');
     return {
       ok: true,
@@ -95,7 +103,7 @@ ipcMain.handle('questions:save', async (_event, payload) => {
       path: questionsPath
     };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Falha ao salvar questions.ts' };
+    return { ok: false, error: error instanceof Error ? error.message : 'Falha ao salvar arquivo de perguntas' };
   }
 });
 

@@ -468,7 +468,7 @@ const App: React.FC = () => {
     if (electronApi?.clearQuestionsFile) {
       const clearResult = await electronApi.clearQuestionsFile();
       if (!clearResult.ok) {
-        window.alert(`Não foi possível limpar o arquivo questions.ts. ${clearResult.error ?? ''}`.trim());
+        window.alert(`Não foi possível limpar o arquivo de perguntas. ${clearResult.error ?? ''}`.trim());
         return;
       }
     }
@@ -508,11 +508,11 @@ const App: React.FC = () => {
     if (electronApi?.saveQuestionsFile) {
       const saveResult = await electronApi.saveQuestionsFile(generatedQuestions);
       if (!saveResult.ok) {
-        window.alert(`Não foi possível salvar no questions.ts. ${saveResult.error ?? ''}`.trim());
+        window.alert(`Não foi possível salvar o arquivo de perguntas. ${saveResult.error ?? ''}`.trim());
         return;
       }
     } else {
-      window.alert('Modo navegador: não foi possível salvar no arquivo questions.ts, apenas em memória.');
+      window.alert('Modo navegador: não foi possível salvar em arquivo, apenas em memória.');
     }
 
     setActiveQuestions(generatedQuestions);
