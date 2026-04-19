@@ -71,13 +71,13 @@ const COLOR_THEMES: ColorTheme[] = [
 ];
 
 const FONT_OPTIONS: FontOption[] = [
-  { id: 'advent-sans-logo', label: 'Advent Sans Logo', family: 'Advent Sans Logo' },
-  { id: 'arial-local', label: 'Arial', family: 'Arial Local' },
-  { id: 'roboto-semicondensed-regular', label: 'Roboto SemiCondensed Regular', family: 'Roboto SemiCondensed Regular' },
-  { id: 'roboto-condensed-medium', label: 'Roboto Condensed Medium', family: 'Roboto Condensed Medium' },
-  { id: 'roboto-condensed-bold', label: 'Roboto Condensed Bold', family: 'Roboto Condensed Bold' },
-  { id: 'roboto-condensed-black', label: 'Roboto Condensed Black', family: 'Roboto Condensed Black' },
-  { id: 'roboto-extralight', label: 'Roboto ExtraLight', family: 'Roboto ExtraLight' }
+  { id: 'advent-sans-logo', label: 'Advent Sans Logo', family: 'Advent Pro, sans-serif' },
+  { id: 'arial-local', label: 'Arial', family: 'Roboto, Arial, sans-serif' },
+  { id: 'roboto-semicondensed-regular', label: 'Roboto SemiCondensed Regular', family: 'Roboto Condensed, sans-serif' },
+  { id: 'roboto-condensed-medium', label: 'Roboto Condensed Medium', family: 'Roboto Condensed, sans-serif' },
+  { id: 'roboto-condensed-bold', label: 'Roboto Condensed Bold', family: 'Roboto Condensed, sans-serif' },
+  { id: 'roboto-condensed-black', label: 'Roboto Condensed Black', family: 'Roboto Condensed, sans-serif' },
+  { id: 'roboto-extralight', label: 'Roboto ExtraLight', family: 'Roboto, sans-serif' }
 ];
 
 const DEFAULT_QUESTION_FONT_ID = 'roboto-condensed-bold';
@@ -1095,12 +1095,14 @@ const App: React.FC = () => {
     </div>
   ) : null;
 
+  const appVersion = process.env.APP_VERSION || '1.0.0';
+
   const appFooter = (
     <div
       className="fixed bottom-2 left-1/2 -translate-x-1/2 z-[60] px-2 py-0.5 text-black text-[9px] md:text-[10px] font-normal text-center pointer-events-none whitespace-nowrap"
       style={{ fontFamily: 'Arial, sans-serif' }}
     >
-      © 2026 | Desenvolvedor - Railson Monteiro | Todos os direitos reservados | versão 1.0
+      © 2026 | Desenvolvedor - Railson Monteiro | Todos os direitos reservados | versão {appVersion}
     </div>
   );
 

@@ -1,12 +1,15 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('path');
+const os = require('os');
+const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
 const LOCAL_VERSION_CHECK_INTERVAL_MS = 60 * 1000;
 const GITHUB_RAW_VERSION_URL = 'https://raw.githubusercontent.com/RailsonMonteiro/showdalicao/main/Versão.txt';
+const GITHUB_RELEASES_URL = 'https://github.com/RailsonMonteiro/showdalicao/releases/latest';
 
 let mainWindow = null;
 let localVersionCheckInterval = null;
@@ -57,6 +60,54 @@ function setUpdaterState(nextState) {
 function getUpdaterErrorMessage(error) {
   if (error instanceof Error && error.message) return error.message;
   return typeof error === 'string' ? error : 'Falha ao verificar atualização';
+}
+
+function isLatestYmlMissingError(message) {
+  const normalizedMessage = String(message ?? '').toLowerCase();
+  return normalizedMessage.includes('cannot find latest yml')
+    || (normalizedMessage.includes('latest.yml') && normalizedMessage.includes('404'));
+}
+
+async function getInstallerDownloadUrl(version) {
+  const normalizedVersion = normalizeVersionString(version);
+  if (!normalizedVersion) {
+    throw new Error('Versão remota inválida.');
+  }
+
+  try {
+    const apiUrl = `https://api.github.com/repos/RailsonMonteiro/showdalicao/releases/tags/v${normalizedVersion}`;
+    const response = await fetch(apiUrl, { cache: 'no-store' });
+    
+    if (!response.ok) {
+      throw new Error(`Release v${normalizedVersion} não encontrada no GitHub (${response.status})`);
+    }
+
+    const release = await response.json();
+    const exeAsset = release.assets?.find(asset => asset.name.endsWith('.exe'));
+    
+    if (!exeAsset || !exeAsset.browser_download_url) {
+      throw new Error(`Arquivo .exe não encontrado na release v${normalizedVersion}`);
+    }
+
+    return exeAsset.browser_download_url;
+  } catch (error) {
+    throw new Error(`Falha ao buscar URL do instalador no GitHub: ${getUpdaterErrorMessage(error)}`);
+  }
+}
+
+async function downloadFileToTemp(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Falha ao baixar instalador (${response.status})`);
+  }
+
+  const buffer = await response.arrayBuffer();
+  const tempDir = os.tmpdir();
+  const fileName = `showdalicao-installer-${Date.now()}.exe`;
+  const filePath = path.join(tempDir, fileName);
+  
+  await fs.writeFile(filePath, Buffer.from(buffer));
+  return filePath;
 }
 
 function canUseAutoUpdater() {
@@ -177,24 +228,31 @@ ipcMain.handle('updater:download-install', async () => {
   }
 
   try {
-    setUpdaterState({ error: null });
+    setUpdaterState({ error: null, downloading: true });
 
-    if (updaterState.downloaded) {
-      autoUpdater.quitAndInstall();
-      return { ok: true };
+    const remoteVersion = updaterState.version;
+    if (!remoteVersion) {
+      throw new Error('Versão remota não disponível.');
     }
 
-    setUpdaterState({ downloading: true });
-    await autoUpdater.checkForUpdates();
-    await autoUpdater.downloadUpdate();
-    autoUpdater.quitAndInstall();
+    const downloadUrl = await getInstallerDownloadUrl(remoteVersion);
+    const installerPath = await downloadFileToTemp(downloadUrl);
+
+    setUpdaterState({ downloading: false, downloaded: true });
+
+    app.quit();
+    setTimeout(() => {
+      spawn(installerPath, [], { detached: true });
+      process.exit(0);
+    }, 500);
+
     return { ok: true };
   } catch (error) {
     const message = getUpdaterErrorMessage(error);
     setUpdaterState({ downloading: false, error: message });
     return { ok: false, error: message };
   }
-});
+})
 
 function getQuestionsFilePath() {
   return path.join(app.getPath('userData'), QUESTIONS_STORAGE_FILE);
@@ -305,7 +363,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     autoHideMenuBar: true,
-    icon: path.join(__dirname, '..', 'img', 'ico.png'),
+    icon: path.join(__dirname, '..', 'img', 'ico.ico'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

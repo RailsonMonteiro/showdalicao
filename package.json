@@ -1,7 +1,7 @@
 {
   "name": "show-da-licao-modo-equipes",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Aplicativo em React para o jogo Show da Lição - modo equipes.",
   "author": "Railson Monteiro",
   "type": "module",
@@ -18,6 +18,7 @@
   "build": {
     "appId": "com.showdalicao.app",
     "productName": "Show da Licao",
+    "afterPack": "scripts/after-pack.cjs",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -44,7 +45,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Show da Lição"
+      "shortcutName": "Show da Lição",
+      "installerIcon": "img/ico.ico",
+      "uninstallerIcon": "img/ico.ico"
     }
   },
   "dependencies": {
@@ -60,6 +63,7 @@
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12",
     "png-to-ico": "^3.0.1",
+    "rcedit": "^4.0.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "wait-on": "^8.0.3"
