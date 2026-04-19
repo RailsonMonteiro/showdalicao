@@ -1,0 +1,18 @@
+{
+  "name": "Show da Lição",
+  "short_name": "Show da Lição",
+  "description": "Jogo Show da Lição no modo equipes.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#219ebc",
+  "icons": [
+    {
+      "src": "img/icopage.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
