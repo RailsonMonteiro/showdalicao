@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { questions } from './questions';
 import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question } from './types';
 import settingsIcon from './img/settings.svg';
+import updateIcon from './img/Atualizar.svg';
 import moreZoomIcon from './img/mais-zoom.svg';
 import tempoIcon from './img/tempo.svg';
 import showDaLicaoLogo from './img/Showdalicao.png';
@@ -110,9 +111,26 @@ type QuestionsFileResult = {
   count?: number;
 };
 
+type UpdaterState = {
+  available: boolean;
+  downloading: boolean;
+  downloaded: boolean;
+  version: string | null;
+  error: string | null;
+};
+
+type UpdaterActionResult = {
+  ok: boolean;
+  error?: string;
+};
+
 type ElectronQuestionsApi = {
   clearQuestionsFile: () => Promise<QuestionsFileResult>;
   saveQuestionsFile: (questionsPayload: Question[]) => Promise<QuestionsFileResult>;
+  getUpdaterState: () => Promise<UpdaterState>;
+  checkForUpdates: () => Promise<UpdaterActionResult>;
+  downloadAndInstallUpdate: () => Promise<UpdaterActionResult>;
+  onUpdaterStateChange: (callback: (state: UpdaterState) => void) => () => void;
 };
 
 const normalizeHex = (hex: string): string => {
@@ -176,6 +194,16 @@ const App: React.FC = () => {
     : undefined);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
+  const [updaterState, setUpdaterState] = useState<UpdaterState>({
+    available: false,
+    downloading: false,
+    downloaded: false,
+    version: null,
+    error: null
+  });
   const [showSetupZoomPanel, setShowSetupZoomPanel] = useState(false);
   const [showGameZoomPanel, setShowGameZoomPanel] = useState(false);
   const [settingsSection, setSettingsSection] = useState<'interface' | 'perguntas' | 'fontes'>('interface');
@@ -438,6 +466,41 @@ const App: React.FC = () => {
     if (!openingAudioRef.current) return;
     openingAudioRef.current.volume = musicVolume / 100;
   }, [musicVolume]);
+
+  useEffect(() => {
+    if (!electronApi?.getUpdaterState || !electronApi?.onUpdaterStateChange) return;
+
+    let mounted = true;
+    const syncUpdaterState = async () => {
+      try {
+        const state = await electronApi.getUpdaterState();
+        if (mounted) {
+          setUpdaterState(state);
+        }
+      } catch {
+        // Ignora falhas transitórias de comunicação com o processo principal.
+      }
+    };
+
+    void syncUpdaterState();
+    void electronApi.checkForUpdates?.();
+
+    const unsubscribe = electronApi.onUpdaterStateChange((state) => {
+      setUpdaterState(state);
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [electronApi]);
+
+  useEffect(() => {
+    if (!updaterState.available || !updaterState.version) return;
+    if (dismissedUpdateVersion === updaterState.version || showUpdateDialog) return;
+
+    setShowUpdateDialog(true);
+  }, [dismissedUpdateVersion, showUpdateDialog, updaterState.available, updaterState.version]);
 
   useEffect(() => {
     return () => {
@@ -961,6 +1024,86 @@ const App: React.FC = () => {
     </button>
   );
 
+  const showUpdateButton = Boolean(electronApi?.getUpdaterState) &&
+    (updaterState.available || updaterState.downloading || updaterState.downloaded);
+
+  const handleUpdateApp = async () => {
+    if (!electronApi?.downloadAndInstallUpdate || isUpdating) return;
+
+    setIsUpdating(true);
+    try {
+      const result = await electronApi.downloadAndInstallUpdate();
+      if (!result.ok) {
+        window.alert(result.error ?? 'Não foi possível iniciar a atualização do aplicativo.');
+      }
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const updateButtonTitle = updaterState.downloading
+    ? 'Baixando atualização...'
+    : updaterState.downloaded
+      ? 'Instalar atualização agora'
+      : updaterState.version
+        ? `Atualizar para ${updaterState.version}`
+        : 'Atualizar aplicativo';
+
+  const updateButton = showUpdateButton ? (
+    <button
+      onClick={() => {
+        setShowUpdateDialog(true);
+      }}
+      disabled={isUpdating || updaterState.downloading}
+      className="fixed top-4 right-16 md:right-[4.4rem] z-[70] w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/20 hover:bg-white/40 backdrop-blur-sm shadow-lg border border-white/30 flex items-center justify-center transition-all duration-200 ease-out active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
+      aria-label={updateButtonTitle}
+      title={updateButtonTitle}
+      style={{ color: activeTheme.primary }}
+    >
+      <img src={updateIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+    </button>
+  ) : null;
+
+  const updateDialog = showUpdateDialog && showUpdateButton ? (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 md:p-6 shadow-2xl text-center" style={{ fontFamily: 'Arial, sans-serif' }}>
+        <h3 className="text-lg md:text-xl font-bold text-black mb-3">Nova versão disponível</h3>
+        <p className="text-sm md:text-base text-black mb-1">Existe uma atualização para o aplicativo desktop.</p>
+        <p className="text-sm md:text-base text-black mb-6">Deseja baixar e atualizar agora?</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => {
+              setDismissedUpdateVersion(null);
+              setShowUpdateDialog(false);
+              void handleUpdateApp();
+            }}
+            className="inline-flex items-center justify-center rounded-xl px-5 py-2.5 bg-blue-600 text-white font-bold hover:bg-blue-700 transition-all duration-200 ease-out"
+          >
+            Sim
+          </button>
+          <button
+            onClick={() => {
+              setDismissedUpdateVersion(updaterState.version ?? null);
+              setShowUpdateDialog(false);
+            }}
+            className="inline-flex items-center justify-center rounded-xl px-5 py-2.5 bg-gray-200 text-black font-bold hover:bg-gray-300 transition-all duration-200 ease-out"
+          >
+            Não
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  const appFooter = (
+    <div
+      className="fixed bottom-2 left-1/2 -translate-x-1/2 z-[60] px-2 py-0.5 text-black text-[9px] md:text-[10px] font-normal text-center pointer-events-none whitespace-nowrap"
+      style={{ fontFamily: 'Arial, sans-serif' }}
+    >
+      © 2026 | Desenvolvedor - Railson Monteiro | Todos os direitos reservados | versão 1.0
+    </div>
+  );
+
   if (showSettings) {
     const settingsZoomStyle: React.CSSProperties = {
       zoom: `${setupZoomLevel}%`
@@ -1434,6 +1577,8 @@ const App: React.FC = () => {
           </div>
         )}
         {setupZoomFloatingControl}
+        {updateDialog}
+        {appFooter}
       </div>
     );
   }
@@ -1511,8 +1656,11 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {updateButton}
         {settingsButton}
         {setupZoomFloatingControl}
+        {updateDialog}
+        {appFooter}
       </div>
     );
   }
@@ -1544,6 +1692,8 @@ const App: React.FC = () => {
           </div>
         </div>
         {setupZoomFloatingControl}
+        {updateDialog}
+        {appFooter}
       </div>
     );
   }
@@ -1873,6 +2023,8 @@ const App: React.FC = () => {
       )}
 
       {gameZoomFloatingControl}
+      {updateDialog}
+      {appFooter}
     </div>
   );
 };

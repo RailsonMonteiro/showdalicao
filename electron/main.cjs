@@ -1,9 +1,202 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('path');
+const { autoUpdater } = require('electron-updater');
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
+const VERSION_FILE_NAME = 'Versão.txt';
+const LOCAL_VERSION_CHECK_INTERVAL_MS = 60 * 1000;
+
+let mainWindow = null;
+let localVersionCheckInterval = null;
+let updaterInitialized = false;
+
+const updaterState = {
+  available: false,
+  downloading: false,
+  downloaded: false,
+  version: null,
+  error: null
+};
+
+function normalizeVersionString(version) {
+  return String(version ?? '').trim().replace(/^v/i, '');
+}
+
+function compareVersions(leftVersion, rightVersion) {
+  const leftParts = normalizeVersionString(leftVersion).split('.').map((part) => Number(part) || 0);
+  const rightParts = normalizeVersionString(rightVersion).split('.').map((part) => Number(part) || 0);
+  const segmentCount = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const leftValue = leftParts[index] ?? 0;
+    const rightValue = rightParts[index] ?? 0;
+
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+
+  return 0;
+}
+
+function getExecutableDirectory() {
+  return path.dirname(app.getPath('exe'));
+}
+
+function getLocalVersionFilePath() {
+  if (app.isPackaged) {
+    return path.join(getExecutableDirectory(), VERSION_FILE_NAME);
+  }
+
+  return path.join(app.getAppPath(), VERSION_FILE_NAME);
+}
+
+function sendUpdaterState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('updater:state', updaterState);
+}
+
+function setUpdaterState(nextState) {
+  Object.assign(updaterState, nextState);
+  sendUpdaterState();
+}
+
+function getUpdaterErrorMessage(error) {
+  if (error instanceof Error && error.message) return error.message;
+  return typeof error === 'string' ? error : 'Falha ao verificar atualização';
+}
+
+function canUseAutoUpdater() {
+  return process.platform === 'win32' && app.isPackaged;
+}
+
+async function readLocalVersionFile() {
+  try {
+    const versionContent = await fs.readFile(getLocalVersionFilePath(), 'utf8');
+    return normalizeVersionString(versionContent);
+  } catch {
+    return null;
+  }
+}
+
+async function refreshLocalUpdateState() {
+  if (!canUseAutoUpdater()) {
+    return;
+  }
+
+  const localVersion = await readLocalVersionFile();
+  const currentVersion = normalizeVersionString(app.getVersion());
+
+  if (!localVersion) {
+    if (!updaterState.downloading && !updaterState.downloaded) {
+      setUpdaterState({ available: false, version: null, error: null });
+    }
+    return;
+  }
+
+  const hasUpdate = compareVersions(localVersion, currentVersion) > 0;
+
+  setUpdaterState({
+    available: hasUpdate,
+    version: hasUpdate ? localVersion : null,
+    error: null
+  });
+}
+
+function setupAutoUpdater(win) {
+  mainWindow = win;
+  sendUpdaterState();
+
+  if (!canUseAutoUpdater() || updaterInitialized) return;
+
+  updaterInitialized = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('download-progress', () => {
+    if (!updaterState.downloading) {
+      setUpdaterState({ downloading: true, error: null });
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    setUpdaterState({
+      available: true,
+      downloading: false,
+      downloaded: true,
+      version: info?.version ?? updaterState.version,
+      error: null
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    setUpdaterState({
+      downloading: false,
+      error: getUpdaterErrorMessage(error)
+    });
+  });
+
+  void refreshLocalUpdateState().catch((error) => {
+    setUpdaterState({ error: getUpdaterErrorMessage(error) });
+  });
+
+  localVersionCheckInterval = setInterval(() => {
+    void refreshLocalUpdateState().catch((error) => {
+      setUpdaterState({ error: getUpdaterErrorMessage(error) });
+    });
+  }, LOCAL_VERSION_CHECK_INTERVAL_MS);
+}
+
+ipcMain.handle('updater:get-state', () => ({ ...updaterState }));
+
+ipcMain.handle('updater:check', async () => {
+  if (!canUseAutoUpdater()) {
+    return { ok: false, error: 'Atualização automática disponível apenas no app desktop empacotado para Windows.' };
+  }
+
+  try {
+    await refreshLocalUpdateState();
+    setUpdaterState({ error: null });
+    return { ok: true };
+  } catch (error) {
+    const message = getUpdaterErrorMessage(error);
+    setUpdaterState({ error: message });
+    return { ok: false, error: message };
+  }
+});
+
+ipcMain.handle('updater:download-install', async () => {
+  if (!canUseAutoUpdater()) {
+    return { ok: false, error: 'Atualização automática disponível apenas no app desktop empacotado para Windows.' };
+  }
+
+  if (!updaterState.available && !updaterState.downloaded) {
+    await refreshLocalUpdateState();
+    if (!updaterState.available && !updaterState.downloaded) {
+      return { ok: false, error: 'Nenhuma atualização disponível no momento.' };
+    }
+  }
+
+  try {
+    setUpdaterState({ error: null });
+
+    if (updaterState.downloaded) {
+      autoUpdater.quitAndInstall();
+      return { ok: true };
+    }
+
+    setUpdaterState({ downloading: true });
+    await autoUpdater.checkForUpdates();
+    await autoUpdater.downloadUpdate();
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (error) {
+    const message = getUpdaterErrorMessage(error);
+    setUpdaterState({ downloading: false, error: message });
+    return { ok: false, error: message };
+  }
+});
 
 function getQuestionsFilePath() {
   return path.join(app.getPath('userData'), QUESTIONS_STORAGE_FILE);
@@ -129,6 +322,14 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
+
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+  });
+
+  setupAutoUpdater(win);
 }
 
 app.whenReady().then(() => {
@@ -142,5 +343,12 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  if (localVersionCheckInterval) {
+    clearInterval(localVersionCheckInterval);
+    localVersionCheckInterval = null;
   }
 });
