@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'show-da-licao-pwa-v1';
+const CACHE_VERSION = 'show-da-licao-pwa-v3';
 const CACHE_NAME = `show-da-licao-cache-${CACHE_VERSION}`;
 
 const BASE_PATH = new URL('./', self.location).pathname;
@@ -6,7 +6,7 @@ const APP_SHELL = [
   BASE_PATH,
   `${BASE_PATH}index.html`,
   `${BASE_PATH}manifest.webmanifest`,
-  `${BASE_PATH}img/icopage.png`
+  `${BASE_PATH}img/ico.png`
 ];
 
 self.addEventListener('install', (event) => {

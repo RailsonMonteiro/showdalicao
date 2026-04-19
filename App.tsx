@@ -13,7 +13,7 @@ import wrongAudioTrack from './Errou.mp3';
 
 const MIN_ZOOM = 50;
 const MAX_ZOOM = 120;
-const DEFAULT_ZOOM = 67;
+const DEFAULT_ZOOM = 90;
 const DEFAULT_THEME_ID = 'ocean';
 const DEFAULT_CUSTOM_COLOR = '#ff006e';
 
@@ -80,17 +80,17 @@ const FONT_OPTIONS: FontOption[] = [
 ];
 
 const DEFAULT_QUESTION_FONT_ID = 'roboto-condensed-bold';
-const DEFAULT_ANSWER_FONT_ID = 'roboto-condensed-medium';
+const DEFAULT_ANSWER_FONT_ID = 'roboto-condensed-bold';
 const MIN_FONT_SIZE_PT = 12;
 const MAX_FONT_SIZE_PT = 100;
-const DEFAULT_QUESTION_FONT_SIZE = 32;
-const DEFAULT_ANSWER_FONT_SIZE = 28;
+const DEFAULT_QUESTION_FONT_SIZE = 31;
+const DEFAULT_ANSWER_FONT_SIZE = 16;
 const DEFAULT_QUESTION_POINTS = 1000;
 const DEFAULT_QUESTION_COUNT = 10;
 const DEFAULT_OPTION_COUNT = 4;
-const DEFAULT_MUSIC_VOLUME = 16;
-const DEFAULT_EFFECTS_VOLUME = 40;
-const DEFAULT_TEAM_CLOCK_VOLUME = 40;
+const DEFAULT_MUSIC_VOLUME = 30;
+const DEFAULT_EFFECTS_VOLUME = 90;
+const DEFAULT_TEAM_CLOCK_VOLUME = 60;
 const QUESTION_OPTION_KEYS: QuestionOptionKey[] = ['A', 'B', 'C', 'D', 'E', 'F'];
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 
@@ -244,17 +244,23 @@ const App: React.FC = () => {
   const [showTeamNamesModal, setShowTeamNamesModal] = useState(false);
   const [musicVolume, setMusicVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_MUSIC_VOLUME;
-    const saved = Number(window.localStorage.getItem('musicVolume'));
+    const savedRaw = window.localStorage.getItem('musicVolume');
+    if (savedRaw === null) return DEFAULT_MUSIC_VOLUME;
+    const saved = Number(savedRaw);
     return Number.isFinite(saved) ? clamp(saved, 0, 100) : DEFAULT_MUSIC_VOLUME;
   });
   const [effectsVolume, setEffectsVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_EFFECTS_VOLUME;
-    const saved = Number(window.localStorage.getItem('effectsVolume'));
+    const savedRaw = window.localStorage.getItem('effectsVolume');
+    if (savedRaw === null) return DEFAULT_EFFECTS_VOLUME;
+    const saved = Number(savedRaw);
     return Number.isFinite(saved) ? clamp(saved, 0, 100) : DEFAULT_EFFECTS_VOLUME;
   });
   const [teamClockVolume, setTeamClockVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_TEAM_CLOCK_VOLUME;
-    const saved = Number(window.localStorage.getItem('teamClockVolume'));
+    const savedRaw = window.localStorage.getItem('teamClockVolume');
+    if (savedRaw === null) return DEFAULT_TEAM_CLOCK_VOLUME;
+    const saved = Number(savedRaw);
     return Number.isFinite(saved) ? clamp(saved, 0, 100) : DEFAULT_TEAM_CLOCK_VOLUME;
   });
   const [draftTeam1Name, setDraftTeam1Name] = useState('Equipe 1');
@@ -277,6 +283,28 @@ const App: React.FC = () => {
     hiddenOptions: [],
     shuffledQuestions: []
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const migrationKey = 'appVolumeDefaultsMigratedV1';
+    if (window.localStorage.getItem(migrationKey) === '1') return;
+
+    const musicRaw = window.localStorage.getItem('musicVolume');
+    const effectsRaw = window.localStorage.getItem('effectsVolume');
+    const teamRaw = window.localStorage.getItem('teamClockVolume');
+
+    if (musicRaw === '0' && effectsRaw === '0' && teamRaw === '0') {
+      setMusicVolume(DEFAULT_MUSIC_VOLUME);
+      setEffectsVolume(DEFAULT_EFFECTS_VOLUME);
+      setTeamClockVolume(DEFAULT_TEAM_CLOCK_VOLUME);
+      window.localStorage.setItem('musicVolume', String(DEFAULT_MUSIC_VOLUME));
+      window.localStorage.setItem('effectsVolume', String(DEFAULT_EFFECTS_VOLUME));
+      window.localStorage.setItem('teamClockVolume', String(DEFAULT_TEAM_CLOCK_VOLUME));
+    }
+
+    window.localStorage.setItem(migrationKey, '1');
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem('appSetupZoomLevel', String(setupZoomLevel));
@@ -349,6 +377,47 @@ const App: React.FC = () => {
       openingAudioRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (gameState.mode !== 'setup') return;
+
+    const removeInteractionListeners = () => {
+      window.removeEventListener('pointerdown', tryPlayOnInteraction);
+      window.removeEventListener('touchstart', tryPlayOnInteraction);
+      window.removeEventListener('keydown', tryPlayOnInteraction);
+      window.removeEventListener('mousemove', tryPlayOnInteraction);
+      window.removeEventListener('click', tryPlayOnInteraction);
+    };
+
+    const tryPlayOnInteraction = () => {
+      const audio = openingAudioRef.current;
+      if (!audio) return;
+
+      if (!audio.paused) {
+        removeInteractionListeners();
+        return;
+      }
+
+      void audio.play()
+        .then(() => {
+          removeInteractionListeners();
+        })
+        .catch(() => {
+          // Ignora bloqueios de autoplay em contextos sem interação.
+        });
+    };
+
+    window.addEventListener('pointerdown', tryPlayOnInteraction, { passive: true });
+    window.addEventListener('touchstart', tryPlayOnInteraction, { passive: true });
+    window.addEventListener('keydown', tryPlayOnInteraction);
+    window.addEventListener('mousemove', tryPlayOnInteraction, { passive: true });
+    window.addEventListener('click', tryPlayOnInteraction, { passive: true });
+
+    return () => {
+      removeInteractionListeners();
+    };
+  }, [gameState.mode]);
 
   useEffect(() => {
     const audio = openingAudioRef.current;
@@ -836,7 +905,7 @@ const App: React.FC = () => {
       </div>
       <button
         onClick={() => setShowSetupZoomPanel(prev => !prev)}
-        className="w-10 h-10 rounded-lg bg-white/20 hover:bg-white/20 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+        className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/20 hover:bg-white/40 backdrop-blur-sm shadow-lg border border-white/30 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
         style={{ color: activeTheme.primary }}
         aria-label="Abrir controle de zoom inicial"
         title="Zoom Inicial"
@@ -870,7 +939,7 @@ const App: React.FC = () => {
       </div>
       <button
         onClick={() => setShowGameZoomPanel(prev => !prev)}
-        className="w-10 h-10 rounded-lg bg-white/20 hover:bg-white/20 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+        className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/20 hover:bg-white/40 backdrop-blur-sm shadow-lg border border-white/30 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
         style={{ color: activeTheme.primary }}
         aria-label="Abrir controle de zoom da tela de perguntas"
         title="Zoom Perguntas"
@@ -883,7 +952,7 @@ const App: React.FC = () => {
   const settingsButton = (
     <button
       onClick={() => setShowSettings(true)}
-      className="fixed top-4 right-4 z-[70] w-10 h-10 rounded-lg bg-white/20 hover:bg-white/20 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+      className="fixed top-4 right-4 z-[70] w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/20 hover:bg-white/40 backdrop-blur-sm shadow-lg border border-white/30 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
       aria-label="Abrir configurações"
       title="Configurações"
       style={{ color: activeTheme.primary }}
@@ -904,20 +973,20 @@ const App: React.FC = () => {
             <div className="flex items-center justify-between gap-4 mb-6 md:mb-8">
               <h2 className="text-xl md:text-2xl font-black uppercase leading-none flex items-center gap-2 md:gap-2">
                 <img src={settingsIcon} alt="" className="w-6 h-6 md:w-7 md:h-7" aria-hidden="true" />
-                <span className="translate-y-[1px]">Configurações</span>
+                <span className="hidden md:inline translate-y-[1px]">Configurações</span>
               </h2>
               <div className="flex items-center gap-2 md:gap-3">
                 <button
                   onClick={handleApplyFontChanges}
                   disabled={!hasPendingFontChanges}
-                  className="px-5 py-2.5 rounded-xl text-white font-black uppercase text-xs md:text-sm shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-white hover:text-green-300 font-black uppercase text-[10px] md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
                   Aplicar
                 </button>
                 <button
                   onClick={() => setShowSettings(false)}
-                  className="text-white font-black py-2.5 px-5 rounded-xl text-xs md:text-sm uppercase shadow-lg"
+                  className="text-white hover:text-green-300 font-black py-2 md:py-2.5 px-4 md:px-5 rounded-xl text-[10px] md:text-sm uppercase shadow-lg transition-all duration-200 ease-out hover:brightness-110"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
                   Voltar
@@ -939,7 +1008,7 @@ const App: React.FC = () => {
                       <button
                         key={item.id}
                         onClick={() => setSettingsSection(item.id as 'interface' | 'perguntas' | 'fontes')}
-                        className={`w-full text-left px-4 py-3 rounded-xl font-black uppercase text-sm transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
+                        className={`w-full text-left px-4 py-2.5 md:py-3 rounded-xl font-black uppercase text-xs md:text-sm transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
                         style={isActive
                           ? {
                               color: activeTheme.primary,
@@ -1082,7 +1151,7 @@ const App: React.FC = () => {
                           />
                           <button
                             onClick={() => setThemeId('custom')}
-                            className="px-4 py-2 rounded-lg text-white font-bold text-sm"
+                            className="px-4 py-2 rounded-lg text-white font-bold text-xs md:text-sm"
                             style={{ backgroundColor: customColor }}
                           >
                             Usar Cor Personalizada
@@ -1139,7 +1208,7 @@ const App: React.FC = () => {
                     <button
                       onClick={openQuestionBuilder}
                       disabled={!questionBuilderIsReady}
-                      className="mt-6 w-full rounded-2xl px-5 py-4 text-white font-black uppercase shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="mt-6 inline-flex self-center rounded-2xl px-4 md:px-5 py-3 md:py-4 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ backgroundColor: activeTheme.primary }}
                     >
                       Gerar perguntas
@@ -1259,7 +1328,7 @@ const App: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setShowQuestionBuilder(false)}
-                  className="rounded-xl px-4 py-2.5 text-white font-black uppercase text-sm shadow-lg"
+                  className="rounded-xl px-4 py-2.5 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
                   Fechar
@@ -1349,13 +1418,13 @@ const App: React.FC = () => {
               <div className="border-t border-gray-100 bg-white px-4 py-4 md:px-8 md:py-5 flex items-center justify-end gap-3">
                 <button
                   onClick={() => setShowQuestionBuilder(false)}
-                  className="rounded-xl px-5 py-3 bg-gray-100 text-gray-600 font-black uppercase text-sm"
+                  className="rounded-xl px-5 py-3 bg-gray-100 text-gray-600 font-black uppercase text-xs md:text-sm"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={generateQuestions}
-                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg"
+                  className="rounded-xl px-5 py-3 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
                   Salvar
@@ -1379,17 +1448,18 @@ const App: React.FC = () => {
             className="w-full max-w-[820px] h-auto object-contain mb-8 md:mb-10 drop-shadow-2xl"
           />
 
-          <div className="w-full max-w-md space-y-4">
+          <div className="w-full max-w-md space-y-4 flex flex-col items-center">
             <button
               onClick={handleStartGame}
-              className="w-full text-white font-black py-4 rounded-2xl text-2xl uppercase transition-all duration-200 ease-out shadow-lg active:scale-95"
+              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-10 rounded-2xl text-2xl uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-95"
               style={{ backgroundColor: activeTheme.primary }}
             >
               Iniciar Jogo
             </button>
             <button
               onClick={openTeamNamesModal}
-              className="w-full bg-white/90 text-gray-800 font-black py-4 rounded-2xl text-xl uppercase transition-all duration-200 ease-out shadow-lg active:scale-95"
+              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-10 rounded-2xl text-xl uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-95"
+              style={{ backgroundColor: activeTheme.primary }}
             >
               Alterar Nome de Equipes
             </button>
@@ -1431,7 +1501,7 @@ const App: React.FC = () => {
                 </button>
                 <button
                   onClick={saveTeamNames}
-                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg"
+                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
                   Alterar
@@ -1469,8 +1539,8 @@ const App: React.FC = () => {
           <p className="text-2xl sm:text-4xl md:text-5xl font-black mb-8 md:mb-12 uppercase italic" style={{ color: activeTheme.primary }}>
             {isDraw ? "Empate Técnico!" : `Vitória da ${winner.name}!`}
           </p>
-          <button onClick={resetToSetup} className="w-full text-white font-black py-4 md:py-5 rounded-2xl text-lg md:text-2xl transition-all duration-200 ease-out shadow-md mb-4 md:mb-6" style={{ backgroundColor: activeTheme.primary }}>NOVA PARTIDA</button>
-          <button onClick={resetToSetup} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 md:py-4 rounded-2xl text-base md:text-xl">VOLTAR AO MENU</button>
+          <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-10 rounded-2xl text-lg md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-md mb-4 md:mb-6" style={{ backgroundColor: activeTheme.primary }}>NOVA PARTIDA</button>
+          <button onClick={resetToSetup} className="inline-flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 md:py-4 px-10 rounded-2xl text-base md:text-xl transition-all duration-200 ease-out">VOLTAR AO MENU</button>
           </div>
         </div>
         {setupZoomFloatingControl}
@@ -1593,13 +1663,13 @@ const App: React.FC = () => {
         <button
           disabled={!gameState.selectedOption}
           onClick={handleConfirm}
-          className="w-full sm:w-auto bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-green-600 disabled:border-gray-400 active:scale-95 uppercase tracking-wide"
+          className="inline-flex items-center justify-center bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-green-600 disabled:border-gray-400 active:scale-95 uppercase tracking-wide"
         >
           Confirmar
         </button>
         <button
           onClick={handleSkip}
-          className="w-full sm:w-auto bg-gray-500 hover:bg-gray-600 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-gray-600 active:scale-95 uppercase tracking-wide"
+          className="inline-flex items-center justify-center bg-gray-500 hover:bg-gray-600 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-gray-600 active:scale-95 uppercase tracking-wide"
         >
           Passar
         </button>
@@ -1682,8 +1752,8 @@ const App: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center justify-center gap-3 md:gap-4 flex-wrap">
-              <button onClick={handleNextAction} className="inline-flex w-full sm:w-auto items-center justify-center text-white font-black py-3 px-5 rounded-3xl text-sm md:text-base shadow-2xl active:scale-95 transition-all duration-200 ease-out uppercase tracking-widest bg-green-500 hover:bg-green-600">Proxima</button>
-              <button onClick={resetToSetup} className="inline-flex w-full sm:w-auto items-center justify-center bg-gray-50 hover:bg-gray-200 text-gray-500 font-bold py-3 px-5 rounded-3xl text-sm md:text-base uppercase transition-all duration-200 ease-out duration-200 ease-out">Sair</button>
+              <button onClick={handleNextAction} className="inline-flex items-center justify-center text-white font-black py-3 px-5 rounded-3xl text-sm md:text-base shadow-2xl active:scale-95 transition-all duration-200 ease-out uppercase tracking-widest bg-green-500 hover:bg-green-600">Proxima</button>
+              <button onClick={resetToSetup} className="inline-flex items-center justify-center bg-gray-50 hover:bg-gray-200 text-gray-500 font-bold py-3 px-5 rounded-3xl text-sm md:text-base uppercase transition-all duration-200 ease-out duration-200 ease-out">Sair</button>
             </div>
           </div>
         </div>

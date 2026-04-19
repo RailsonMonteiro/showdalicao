@@ -114,6 +114,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'img', 'ico.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

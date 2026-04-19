@@ -12,7 +12,8 @@
     "build:web": "vite build",
     "preview": "vite preview",
     "dev:desktop": "concurrently -k \"vite\" \"wait-on tcp:3000 && cross-env VITE_DEV_SERVER_URL=http://localhost:3000 electron .\"",
-    "dist:win": "npm run build && electron-builder --win nsis"
+    "gen:icon:win": "node scripts/generate-win-icon.cjs",
+    "dist:win": "npm run gen:icon:win && npm run build && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.showdalicao.app",
@@ -32,6 +33,7 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
