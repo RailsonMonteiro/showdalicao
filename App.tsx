@@ -1710,7 +1710,7 @@ const App: React.FC = () => {
       <div className="w-full max-w-7xl mx-auto flex flex-col items-stretch" style={{ transform: `scale(${gameZoomLevel / 100})`, transformOrigin: 'center top' }}>
       {/* Header Info */}
       <div className="sticky top-[6px] z-40 flex flex-wrap justify-between items-center gap-3 mb-3 bg-white/20 p-3 sm:p-4 md:p-5 rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
-        <button onClick={resetToSetup} className="bg-white/10 hover:bg-white/30 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black uppercase border border-white/20 active:scale-90 transition-all duration-200 ease-out duration-200 ease-out">Inicio</button>
+        <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
         <div className="text-center flex-1 min-w-[140px]">
           <p className="text-xs font-bold uppercase opacity-80 mb-1">Equipe Atual</p>
           <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">{currentTeam.name}</p>

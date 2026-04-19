@@ -5,8 +5,8 @@ const { autoUpdater } = require('electron-updater');
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
-const VERSION_FILE_NAME = 'Versão.txt';
 const LOCAL_VERSION_CHECK_INTERVAL_MS = 60 * 1000;
+const GITHUB_RAW_VERSION_URL = 'https://raw.githubusercontent.com/RailsonMonteiro/showdalicao/main/Versão.txt';
 
 let mainWindow = null;
 let localVersionCheckInterval = null;
@@ -44,14 +44,6 @@ function getExecutableDirectory() {
   return path.dirname(app.getPath('exe'));
 }
 
-function getLocalVersionFilePath() {
-  if (app.isPackaged) {
-    return path.join(getExecutableDirectory(), VERSION_FILE_NAME);
-  }
-
-  return path.join(app.getAppPath(), VERSION_FILE_NAME);
-}
-
 function sendUpdaterState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send('updater:state', updaterState);
@@ -71,35 +63,41 @@ function canUseAutoUpdater() {
   return process.platform === 'win32' && app.isPackaged;
 }
 
-async function readLocalVersionFile() {
+async function readRemoteVersionFile() {
   try {
-    const versionContent = await fs.readFile(getLocalVersionFilePath(), 'utf8');
-    return normalizeVersionString(versionContent);
-  } catch {
-    return null;
+    const response = await fetch(GITHUB_RAW_VERSION_URL, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`Falha ao acessar a versão remota (${response.status})`);
+    }
+
+    const versionContent = await response.text();
+    const normalizedVersion = normalizeVersionString(versionContent);
+    return normalizedVersion || null;
+  } catch (error) {
+    throw new Error(getUpdaterErrorMessage(error));
   }
 }
 
-async function refreshLocalUpdateState() {
+async function refreshRemoteUpdateState() {
   if (!canUseAutoUpdater()) {
     return;
   }
 
-  const localVersion = await readLocalVersionFile();
+  const remoteVersion = await readRemoteVersionFile();
   const currentVersion = normalizeVersionString(app.getVersion());
 
-  if (!localVersion) {
+  if (!remoteVersion) {
     if (!updaterState.downloading && !updaterState.downloaded) {
       setUpdaterState({ available: false, version: null, error: null });
     }
     return;
   }
 
-  const hasUpdate = compareVersions(localVersion, currentVersion) > 0;
+  const hasUpdate = compareVersions(remoteVersion, currentVersion) > 0;
 
   setUpdaterState({
     available: hasUpdate,
-    version: hasUpdate ? localVersion : null,
+    version: hasUpdate ? remoteVersion : null,
     error: null
   });
 }
@@ -137,12 +135,12 @@ function setupAutoUpdater(win) {
     });
   });
 
-  void refreshLocalUpdateState().catch((error) => {
+  void refreshRemoteUpdateState().catch((error) => {
     setUpdaterState({ error: getUpdaterErrorMessage(error) });
   });
 
   localVersionCheckInterval = setInterval(() => {
-    void refreshLocalUpdateState().catch((error) => {
+    void refreshRemoteUpdateState().catch((error) => {
       setUpdaterState({ error: getUpdaterErrorMessage(error) });
     });
   }, LOCAL_VERSION_CHECK_INTERVAL_MS);
@@ -156,7 +154,7 @@ ipcMain.handle('updater:check', async () => {
   }
 
   try {
-    await refreshLocalUpdateState();
+    await refreshRemoteUpdateState();
     setUpdaterState({ error: null });
     return { ok: true };
   } catch (error) {
@@ -172,7 +170,7 @@ ipcMain.handle('updater:download-install', async () => {
   }
 
   if (!updaterState.available && !updaterState.downloaded) {
-    await refreshLocalUpdateState();
+    await refreshRemoteUpdateState();
     if (!updaterState.available && !updaterState.downloaded) {
       return { ok: false, error: 'Nenhuma atualização disponível no momento.' };
     }

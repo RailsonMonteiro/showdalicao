@@ -32,9 +32,20 @@ Este projeto foi configurado para empacotar como aplicativo desktop usando Elect
 
 Saida esperada:
 - O instalador sera gerado em `release/`
-4. executar o app
-   `npm.cmd install`
-   `npm.cmd run dev`
+
+## Atualizar a versao instalada
+
+A atualizacao da instalacao usa a versao publicada no GitHub. O app instalado compara a propria versao com o arquivo [Versão.txt](Versão.txt) do repositorio.
+
+Quando for lancar uma nova versao:
+
+1. Atualize a versao no [package.json](package.json).
+2. Atualize o numero correspondente em [Versão.txt](Versão.txt).
+3. Gere o instalador:
+   `npm.cmd run dist:win`
+4. Publique a nova release no GitHub.
+
+Depois disso, o app instalado vai detectar a nova versao e oferecer a atualizacao automaticamente.
 
 ## Publicar no GitHub Pages
 
