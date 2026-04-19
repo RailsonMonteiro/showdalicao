@@ -1502,7 +1502,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Scoreboard */}
-      <div className="sticky top-[92px] sm:top-[98px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
+      <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
           {(() => {
             const team1 = gameState.teams[0];
@@ -1511,7 +1511,7 @@ const App: React.FC = () => {
             return (
               <>
                 <div
-                  className={`min-w-0 h-[64px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                  className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
                   style={0 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
                 >
                   <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team1.name}</p>
@@ -1520,7 +1520,7 @@ const App: React.FC = () => {
 
                 <button
                   onClick={handleTenSecondsTimer}
-                  className="h-[64px] sm:h-[72px] md:h-[88px] min-w-[64px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+                  className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
                   aria-label="Iniciar contador de 10 segundos"
                   title="Tempo 10s"
                 >
@@ -1528,7 +1528,7 @@ const App: React.FC = () => {
                 </button>
 
                 <div
-                  className={`min-w-0 h-[64px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                  className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
                   style={1 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
                 >
                   <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team2.name}</p>
@@ -1541,7 +1541,7 @@ const App: React.FC = () => {
       </div>
 
       {/* Main Question Area */}
-      <div className="bg-white rounded-[2rem] shadow-2xl p-4 sm:p-6 md:p-10 xl:p-14 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
+      <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-4 sm:p-6 md:p-10 xl:p-14 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
         <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none text-[12rem]">L</div>
         <div className="relative z-10 w-full">
           <h3
