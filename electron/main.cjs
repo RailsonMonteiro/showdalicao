@@ -1,7 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('path');
-const os = require('os');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
@@ -19,6 +18,7 @@ const updaterState = {
   available: false,
   downloading: false,
   downloaded: false,
+  downloadProgress: null,
   version: null,
   error: null
 };
@@ -43,8 +43,8 @@ function compareVersions(leftVersion, rightVersion) {
   return 0;
 }
 
-function getExecutableDirectory() {
-  return path.dirname(app.getPath('exe'));
+function getUpdateDownloadDirectory() {
+  return path.join(app.getPath('downloads'), 'Show da Lição');
 }
 
 function sendUpdaterState() {
@@ -95,6 +95,7 @@ async function getInstallerDownloadUrl() {
 
     return {
       version: extractVersionFromInstallerName(exeAsset.name) ?? normalizeVersionString(app.getVersion()),
+      fileName: exeAsset.name,
       downloadUrl: exeAsset.browser_download_url
     };
   } catch (error) {
@@ -102,18 +103,57 @@ async function getInstallerDownloadUrl() {
   }
 }
 
-async function downloadFileToTemp(url) {
+async function downloadFileToAppDirectory(url, fileName, onProgress) {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Falha ao baixar instalador (${response.status})`);
   }
 
-  const buffer = await response.arrayBuffer();
-  const tempDir = os.tmpdir();
-  const fileName = `showdalicao-installer-${Date.now()}.exe`;
-  const filePath = path.join(tempDir, fileName);
-  
-  await fs.writeFile(filePath, Buffer.from(buffer));
+  if (!response.body) {
+    throw new Error('Falha ao baixar instalador: resposta sem corpo.');
+  }
+
+  const downloadDir = getUpdateDownloadDirectory();
+  await fs.mkdir(downloadDir, { recursive: true });
+  const filePath = path.join(downloadDir, fileName);
+
+  const totalBytes = Number(response.headers.get('content-length') || 0);
+  const fileHandle = await fs.open(filePath, 'w');
+  const reader = response.body.getReader();
+  let receivedBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (value && value.length > 0) {
+        await fileHandle.write(Buffer.from(value));
+        receivedBytes += value.length;
+
+        if (typeof onProgress === 'function') {
+          const progress = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : null;
+          onProgress({ receivedBytes, totalBytes, progress });
+        }
+      }
+    }
+  } catch (error) {
+    try {
+      await fileHandle.close();
+    } catch {
+      // Ignora falha ao fechar em caso de erro.
+    }
+
+    try {
+      await fs.unlink(filePath);
+    } catch {
+      // Ignora limpeza se o arquivo ainda não existir.
+    }
+
+    throw error;
+  }
+
+  await fileHandle.close();
   return filePath;
 }
 
@@ -222,23 +262,23 @@ ipcMain.handle('updater:download-install', async () => {
   }
 
   try {
-    setUpdaterState({ error: null, downloading: true });
+    setUpdaterState({ error: null, downloading: true, downloaded: false, downloadProgress: 0 });
 
-    const { version: remoteVersion, downloadUrl } = await getInstallerDownloadUrl();
+    const { version: remoteVersion, downloadUrl, fileName } = await getInstallerDownloadUrl();
     if (!remoteVersion) {
       throw new Error('Versão remota não disponível.');
     }
 
-    const installerPath = await downloadFileToTemp(downloadUrl);
-
-    setUpdaterState({ downloading: false, downloaded: true });
-
-    const childProcess = spawn(installerPath, [], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true
+    const installerPath = await downloadFileToAppDirectory(downloadUrl, fileName, ({ progress }) => {
+      setUpdaterState({ downloading: true, downloadProgress: progress });
     });
-    childProcess.unref();
+
+    setUpdaterState({ downloading: false, downloaded: true, downloadProgress: 100 });
+
+    const openResult = await shell.openPath(installerPath);
+    if (openResult) {
+      throw new Error(`Falha ao abrir o instalador baixado: ${openResult}`);
+    }
 
     app.quit();
 
