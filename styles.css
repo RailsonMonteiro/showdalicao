@@ -125,50 +125,36 @@ html::-webkit-scrollbar-thumb,
   background-color: rgba(120, 120, 120, 0.55);
 }
 
-@keyframes confetti-burst {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
-  }
-  12% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--confetti-x, 60px), var(--confetti-y, 140px), 0) rotate(var(--confetti-rot, 180deg)) scale(1);
-  }
-}
-
 .confetti-piece {
   position: absolute;
   border-radius: 999px;
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
   filter: saturate(1.35) brightness(1.08);
-  animation-name: confetti-burst;
-  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
-  animation-fill-mode: both;
+  opacity: 1;
+  transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
+  transition-property: transform, opacity;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform, opacity;
 }
 
-@keyframes firework-burst {
-  0% {
-    opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.35);
-  }
-  14% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(var(--fw-x, 120px), var(--fw-y, -260px), 0) rotate(var(--fw-rot, 180deg)) scale(1.15);
-  }
+.confetti-piece--bursting {
+  opacity: 0;
+  transform: translate3d(var(--confetti-x, 60px), var(--confetti-y, 140px), 0) rotate(var(--confetti-rot, 180deg)) scale(1);
 }
 
 .firework-piece {
   position: absolute;
   border-radius: 999px;
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.65);
-  animation-name: firework-burst;
-  animation-timing-function: cubic-bezier(0.16, 0.84, 0.24, 1);
-  animation-fill-mode: both;
+  opacity: 1;
+  transform: translate3d(0, 0, 0) rotate(0deg) scale(0.35);
+  transition-property: transform, opacity;
+  transition-timing-function: cubic-bezier(0.16, 0.84, 0.24, 1);
+  will-change: transform, opacity;
+}
+
+.firework-piece--bursting {
+  opacity: 0;
+  transform: translate3d(var(--fw-x, 120px), var(--fw-y, -260px), 0) rotate(var(--fw-rot, 180deg)) scale(1.15);
 }
 

@@ -295,6 +295,7 @@ const App: React.FC = () => {
   const [draftTeam2Name, setDraftTeam2Name] = useState('Equipe 2');
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[]>([]);
   const [activeQuestions, setActiveQuestions] = useState<Question[]>(questions);
+  const [confettiBurstReady, setConfettiBurstReady] = useState(false);
 
   const [gameState, setGameState] = useState<GameState>({
     mode: 'setup',
@@ -659,6 +660,7 @@ const App: React.FC = () => {
   const currentTeam = gameState.teams[gameState.currentTeamIndex];
   const currentOptionKeys = currentQuestion ? (Object.keys(currentQuestion.options) as QuestionOptionKey[]) : [];
   const showCorrectConfetti = gameState.showExplanation && gameState.explanationType === 'correct';
+  const showCorrectConfettiBurst = showCorrectConfetti && confettiBurstReady;
   const showWrongResult = gameState.showExplanation && gameState.explanationType === 'wrong';
   const confettiColors = ['#ff1744', '#ff6d00', '#ffea00', '#00e676', '#00e5ff', '#2979ff', '#d500f9', '#ff4081'];
   const fireworkColors = ['#fef08a', '#fdba74', '#fca5a5', '#93c5fd', '#86efac', '#c4b5fd'];
@@ -718,6 +720,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!showCorrectConfetti) {
+      setConfettiBurstReady(false);
       if (applauseAudioRef.current) {
         applauseAudioRef.current.pause();
         applauseAudioRef.current.currentTime = 0;
@@ -725,6 +728,11 @@ const App: React.FC = () => {
       }
       return;
     }
+
+    setConfettiBurstReady(false);
+    const burstFrame = window.requestAnimationFrame(() => {
+      setConfettiBurstReady(true);
+    });
 
     const applauseAudio = new Audio(applauseAudioTrack);
     applauseAudio.volume = clamp(effectsVolume / 100, 0, 1);
@@ -737,6 +745,7 @@ const App: React.FC = () => {
     });
 
     return () => {
+      window.cancelAnimationFrame(burstFrame);
       applauseAudio.pause();
       applauseAudio.currentTime = 0;
       if (applauseAudioRef.current === applauseAudio) {
@@ -1033,9 +1042,6 @@ const App: React.FC = () => {
     setIsUpdating(true);
     try {
       const result = await electronApi.downloadAndInstallUpdate();
-      if (!result.ok) {
-        window.alert(result.error ?? 'Não foi possível iniciar a atualização do aplicativo.');
-      }
     } finally {
       setIsUpdating(false);
     }
@@ -1923,20 +1929,19 @@ const App: React.FC = () => {
             return (
               <span
                 key={`firework-left-${i}`}
-                className="firework-piece"
                 style={{
                   bottom: '-16px',
                   left: '-16px',
                   width: `${size}px`,
                   height: `${size}px`,
                   backgroundColor: fireworkColors[i % fireworkColors.length],
-                  animationDelay: `${i * 36}ms`,
-                  animationDuration: `${duration}ms`,
-                  animationIterationCount: 'infinite',
+                  transitionDelay: `${i * 36}ms`,
+                  transitionDuration: `${duration}ms`,
                   ['--fw-x' as any]: `${dx}px`,
                   ['--fw-y' as any]: `${dy}px`,
                   ['--fw-rot' as any]: `${rotation}deg`
                 }}
+                className={`firework-piece ${showCorrectConfettiBurst ? 'firework-piece--bursting' : ''}`}
               />
             );
           })}
@@ -1950,20 +1955,19 @@ const App: React.FC = () => {
             return (
               <span
                 key={`firework-right-${i}`}
-                className="firework-piece"
                 style={{
                   bottom: '-16px',
                   right: '-16px',
                   width: `${size}px`,
                   height: `${size}px`,
                   backgroundColor: fireworkColors[(i + 3) % fireworkColors.length],
-                  animationDelay: `${i * 36}ms`,
-                  animationDuration: `${duration}ms`,
-                  animationIterationCount: 'infinite',
+                  transitionDelay: `${i * 36}ms`,
+                  transitionDuration: `${duration}ms`,
                   ['--fw-x' as any]: `${dx}px`,
                   ['--fw-y' as any]: `${dy}px`,
                   ['--fw-rot' as any]: `${rotation}deg`
                 }}
+                className={`firework-piece ${showCorrectConfettiBurst ? 'firework-piece--bursting' : ''}`}
               />
             );
           })}
@@ -1977,20 +1981,19 @@ const App: React.FC = () => {
             return (
               <span
                 key={`confetti-left-${i}`}
-                className="confetti-piece confetti-piece-left"
                 style={{
                   bottom: '-12px',
                   left: '-12px',
                   width: `${size}px`,
                   height: `${size * 0.55}px`,
                   backgroundColor: confettiColors[i % confettiColors.length],
-                  animationDelay: `${i * 24}ms`,
-                  animationDuration: `${duration}ms`,
-                  animationIterationCount: 'infinite',
+                  transitionDelay: `${i * 24}ms`,
+                  transitionDuration: `${duration}ms`,
                   ['--confetti-x' as any]: `${dx}px`,
                   ['--confetti-y' as any]: `${dy}px`,
                   ['--confetti-rot' as any]: `${rotation}deg`
                 }}
+                className={`confetti-piece confetti-piece-left ${showCorrectConfettiBurst ? 'confetti-piece--bursting' : ''}`}
               />
             );
           })}
@@ -2004,20 +2007,19 @@ const App: React.FC = () => {
             return (
               <span
                 key={`confetti-right-${i}`}
-                className="confetti-piece confetti-piece-right"
                 style={{
                   bottom: '-12px',
                   right: '-12px',
                   width: `${size}px`,
                   height: `${size * 0.55}px`,
                   backgroundColor: confettiColors[(i + 2) % confettiColors.length],
-                  animationDelay: `${i * 24}ms`,
-                  animationDuration: `${duration}ms`,
-                  animationIterationCount: 'infinite',
+                  transitionDelay: `${i * 24}ms`,
+                  transitionDuration: `${duration}ms`,
                   ['--confetti-x' as any]: `${dx}px`,
                   ['--confetti-y' as any]: `${dy}px`,
                   ['--confetti-rot' as any]: `${rotation}deg`
                 }}
+                className={`confetti-piece confetti-piece-right ${showCorrectConfettiBurst ? 'confetti-piece--bursting' : ''}`}
               />
             );
           })}

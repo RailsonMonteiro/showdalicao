@@ -35,15 +35,14 @@ Saida esperada:
 
 ## Atualizar a versao instalada
 
-A atualizacao da instalacao usa a versao publicada no GitHub. O app instalado compara a propria versao com o arquivo [Versão.txt](Versão.txt) do repositorio.
+A atualizacao da instalacao usa a versao publicada no GitHub. O app instalado compara a propria versao com a release mais recente do repositório.
 
 Quando for lancar uma nova versao:
 
 1. Atualize a versao no [package.json](package.json).
-2. Atualize o numero correspondente em [Versão.txt](Versão.txt).
-3. Gere o instalador:
+2. Gere o instalador:
    `npm.cmd run dist:win`
-4. Publique a nova release no GitHub.
+3. Publique a nova release no GitHub.
 
 Depois disso, o app instalado vai detectar a nova versao e oferecer a atualizacao automaticamente.
 

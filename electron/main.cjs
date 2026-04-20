@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('path');
 const os = require('os');
@@ -8,8 +8,8 @@ const { autoUpdater } = require('electron-updater');
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
 const LOCAL_VERSION_CHECK_INTERVAL_MS = 60 * 1000;
-const GITHUB_RAW_VERSION_URL = 'https://raw.githubusercontent.com/RailsonMonteiro/showdalicao/main/Versão.txt';
-const GITHUB_RELEASES_URL = 'https://github.com/RailsonMonteiro/showdalicao/releases/latest';
+const GITHUB_RELEASE_TAG = 'ShowdaLição';
+const GITHUB_RELEASES_URL = `https://github.com/RailsonMonteiro/showdalicao/releases/tag/${encodeURIComponent(GITHUB_RELEASE_TAG)}`;
 
 let mainWindow = null;
 let localVersionCheckInterval = null;
@@ -68,28 +68,35 @@ function isLatestYmlMissingError(message) {
     || (normalizedMessage.includes('latest.yml') && normalizedMessage.includes('404'));
 }
 
-async function getInstallerDownloadUrl(version) {
-  const normalizedVersion = normalizeVersionString(version);
-  if (!normalizedVersion) {
-    throw new Error('Versão remota inválida.');
+function extractVersionFromInstallerName(fileName) {
+  const match = String(fileName ?? '').match(/(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)\.exe$/i);
+  return match ? normalizeVersionString(match[1]) : null;
+}
+
+async function fetchTaggedRelease() {
+  const apiUrl = `https://api.github.com/repos/RailsonMonteiro/showdalicao/releases/tags/${encodeURIComponent(GITHUB_RELEASE_TAG)}`;
+  const response = await fetch(apiUrl, { cache: 'no-store' });
+
+  if (!response.ok) {
+    throw new Error(`Release ${GITHUB_RELEASE_TAG} não encontrada no GitHub (${response.status})`);
   }
 
+  return response.json();
+}
+
+async function getInstallerDownloadUrl() {
   try {
-    const apiUrl = `https://api.github.com/repos/RailsonMonteiro/showdalicao/releases/tags/v${normalizedVersion}`;
-    const response = await fetch(apiUrl, { cache: 'no-store' });
-    
-    if (!response.ok) {
-      throw new Error(`Release v${normalizedVersion} não encontrada no GitHub (${response.status})`);
-    }
+    const release = await fetchTaggedRelease();
+    const exeAsset = release.assets?.find((asset) => asset.name.toLowerCase().endsWith('.exe'));
 
-    const release = await response.json();
-    const exeAsset = release.assets?.find(asset => asset.name.endsWith('.exe'));
-    
     if (!exeAsset || !exeAsset.browser_download_url) {
-      throw new Error(`Arquivo .exe não encontrado na release v${normalizedVersion}`);
+      throw new Error(`Arquivo .exe não encontrado na release ${GITHUB_RELEASE_TAG}`);
     }
 
-    return exeAsset.browser_download_url;
+    return {
+      version: extractVersionFromInstallerName(exeAsset.name) ?? normalizeVersionString(app.getVersion()),
+      downloadUrl: exeAsset.browser_download_url
+    };
   } catch (error) {
     throw new Error(`Falha ao buscar URL do instalador no GitHub: ${getUpdaterErrorMessage(error)}`);
   }
@@ -114,27 +121,14 @@ function canUseAutoUpdater() {
   return process.platform === 'win32' && app.isPackaged;
 }
 
-async function readRemoteVersionFile() {
-  try {
-    const response = await fetch(GITHUB_RAW_VERSION_URL, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`Falha ao acessar a versão remota (${response.status})`);
-    }
-
-    const versionContent = await response.text();
-    const normalizedVersion = normalizeVersionString(versionContent);
-    return normalizedVersion || null;
-  } catch (error) {
-    throw new Error(getUpdaterErrorMessage(error));
-  }
-}
-
 async function refreshRemoteUpdateState() {
   if (!canUseAutoUpdater()) {
     return;
   }
 
-  const remoteVersion = await readRemoteVersionFile();
+  const release = await fetchTaggedRelease();
+  const exeAsset = release.assets?.find((asset) => asset.name.toLowerCase().endsWith('.exe'));
+  const remoteVersion = extractVersionFromInstallerName(exeAsset?.name);
   const currentVersion = normalizeVersionString(app.getVersion());
 
   if (!remoteVersion) {
@@ -230,25 +224,42 @@ ipcMain.handle('updater:download-install', async () => {
   try {
     setUpdaterState({ error: null, downloading: true });
 
-    const remoteVersion = updaterState.version;
+    const { version: remoteVersion, downloadUrl } = await getInstallerDownloadUrl();
     if (!remoteVersion) {
       throw new Error('Versão remota não disponível.');
     }
 
-    const downloadUrl = await getInstallerDownloadUrl(remoteVersion);
     const installerPath = await downloadFileToTemp(downloadUrl);
 
     setUpdaterState({ downloading: false, downloaded: true });
 
+    const childProcess = spawn(installerPath, [], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    childProcess.unref();
+
     app.quit();
-    setTimeout(() => {
-      spawn(installerPath, [], { detached: true });
-      process.exit(0);
-    }, 500);
 
     return { ok: true };
   } catch (error) {
     const message = getUpdaterErrorMessage(error);
+    const messageBoxOptions = {
+      type: 'error',
+      title: 'Show da Lição',
+      message: 'Falha ao atualizar o aplicativo',
+      detail: message,
+      buttons: ['OK'],
+      defaultId: 0
+    };
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, messageBoxOptions);
+    } else {
+      await dialog.showMessageBox(messageBoxOptions);
+    }
+
     setUpdaterState({ downloading: false, error: message });
     return { ok: false, error: message };
   }
