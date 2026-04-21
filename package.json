@@ -1,7 +1,7 @@
 {
   "name": "show-da-licao-modo-equipes",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Aplicativo em React para o jogo Show da Lição - modo equipes.",
   "author": "Railson Monteiro",
   "type": "module",
