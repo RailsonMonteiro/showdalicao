@@ -422,6 +422,8 @@ function createWindow() {
     },
   });
 
+  win.maximize();
+
   const devUrl = process.env.VITE_DEV_SERVER_URL;
 
   if (devUrl) {

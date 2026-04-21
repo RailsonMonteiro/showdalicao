@@ -1,14 +1,10 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { questions } from './questions';
 import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question } from './types';
-import settingsIcon from './img/settings.svg';
 import expandIcon from './img/expandir.svg';
 import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
-import volumeIcon from './img/volume.svg';
 import updateIcon from './img/Atualizar.svg';
-import moreZoomIcon from './img/mais-zoom.svg';
-import tempoIcon from './img/tempo.svg';
 import showDaLicaoLogo from './img/Showdalicao.png';
 
 import openingAudioTrack from './Abertura.mp3';
@@ -1619,6 +1615,11 @@ const App: React.FC = () => {
     transformOrigin: 'center center'
   };
 
+  const setupFixedScaledStyle: React.CSSProperties = {
+    transform: 'scale(0.9)',
+    transformOrigin: 'center center'
+  };
+
   const setupZoomFloatingControl = (
     <div
       className="fixed right-4 bottom-4 z-[80] flex items-center"
@@ -1648,7 +1649,7 @@ const App: React.FC = () => {
         aria-label="Abrir controle de zoom inicial"
         title="Zoom Inicial"
       >
-        <img src={moreZoomIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+        <i className="fi fi-rr-zoom-in icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
       </button>
     </div>
   );
@@ -1661,7 +1662,7 @@ const App: React.FC = () => {
       title="Configurações"
       style={{ color: activeTheme.primary }}
     >
-      <img src={settingsIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+      <i className="fi fi-rr-menu-burger icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
     </button>
   );
 
@@ -1680,15 +1681,41 @@ const App: React.FC = () => {
   };
 
   const questionOptionsPanel = (
-    <div className="fixed bottom-4 right-4 z-[70]">
+    <div
+      className="fixed bottom-4 right-4 z-[70]"
+      onMouseLeave={() => {
+        setShowQuestionOptionsPanel(false);
+        setShowGameZoomPanel(false);
+        setShowQuestionVolumePanel(false);
+      }}
+    >
+      <div
+        className={`absolute bottom-full right-0 mb-2 w-[220px] rounded-lg bg-white/65 px-3 py-2 shadow-lg transition-all duration-250 ease-out ${showGameZoomPanel ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'}`}
+        style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
+      >
+        <div className="flex items-center gap-2.5">
+          <input
+            type="range"
+            min={MIN_ZOOM}
+            max={MAX_ZOOM}
+            step={1}
+            value={gameZoomLevel}
+            onChange={(e) => setGameZoomLevel(Number(e.target.value))}
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
+            aria-label="Barra de zoom da tela de perguntas"
+          />
+          <span className="text-xs min-w-12 text-right" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{gameZoomLevel}%</span>
+        </div>
+      </div>
+
       <div
         className={`absolute bottom-full right-0 mb-2 w-[250px] rounded-lg bg-white/65 px-3 py-2 shadow-lg transition-all duration-250 ease-out ${showQuestionVolumePanel ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'}`}
         style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
       >
         <div className="mb-2">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: activeTheme.primary }}>Efeito</span>
-            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{effectsVolume}%</span>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>Efeito</span>
+            <span className="text-[10px]" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{effectsVolume}%</span>
           </div>
           <input
             type="range"
@@ -1703,8 +1730,8 @@ const App: React.FC = () => {
         </div>
         <div>
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] font-black uppercase tracking-wide" style={{ color: activeTheme.primary }}>Time</span>
-            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{teamClockVolume}%</span>
+            <span className="text-[10px] uppercase tracking-wide" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>Time</span>
+            <span className="text-[10px]" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{teamClockVolume}%</span>
           </div>
           <input
             type="range"
@@ -1732,7 +1759,11 @@ const App: React.FC = () => {
           title={isFullscreenMode ? 'Sair da tela cheia' : 'Tela cheia'}
           style={{ color: activeTheme.primary }}
         >
-          <img src={expandIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+          {isFullscreenMode ? (
+            <i className="fi fi-rs-compress icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
+          ) : (
+            <img src={expandIcon} alt="" className="icon-black w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+          )}
         </button>
 
         <button
@@ -1745,7 +1776,7 @@ const App: React.FC = () => {
           title="Zoom Perguntas"
           style={{ color: activeTheme.primary }}
         >
-          <img src={moreZoomIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+          <i className="fi fi-rr-zoom-in icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
         </button>
 
         <button
@@ -1758,26 +1789,8 @@ const App: React.FC = () => {
           title="Volumes"
           style={{ color: activeTheme.primary }}
         >
-          <img src={volumeIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+          <i className="fi fi-rr-volume icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
         </button>
-
-        <div
-          className={`overflow-hidden transition-all duration-250 ease-out ${showGameZoomPanel ? 'max-w-[190px] opacity-100 ml-1' : 'max-w-0 opacity-0'}`}
-        >
-          <div className="flex h-10 md:h-11 items-center gap-2.5 min-w-[180px] rounded-lg bg-white/65 px-3" style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}>
-            <input
-              type="range"
-              min={MIN_ZOOM}
-              max={MAX_ZOOM}
-              step={1}
-              value={gameZoomLevel}
-              onChange={(e) => setGameZoomLevel(Number(e.target.value))}
-              className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-              aria-label="Barra de zoom da tela de perguntas"
-            />
-            <span className="text-xs font-black min-w-12 text-right" style={{ color: activeTheme.primary }}>{gameZoomLevel}%</span>
-          </div>
-        </div>
 
       </div>
 
@@ -1800,7 +1813,7 @@ const App: React.FC = () => {
         <img
           src={showQuestionOptionsPanel ? rightOptionsIcon : leftOptionsIcon}
           alt=""
-          className="w-4 h-4 md:w-5 md:h-5 opacity-30 transition-opacity duration-200 ease-out group-hover:opacity-100"
+          className="icon-black w-4 h-4 md:w-5 md:h-5 opacity-30 transition-opacity duration-200 ease-out group-hover:opacity-100"
           aria-hidden="true"
         />
       </button>
@@ -1843,7 +1856,7 @@ const App: React.FC = () => {
       title={updateButtonTitle}
       style={{ color: activeTheme.primary }}
     >
-      <img src={updateIcon} alt="" className="w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+      <img src={updateIcon} alt="" className="icon-black w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
     </button>
   ) : null;
 
@@ -2030,7 +2043,7 @@ const App: React.FC = () => {
           <div className="w-full h-full bg-white rounded-[2rem] p-5 md:p-8 shadow-2xl border-4 flex flex-col" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
             <div className="flex items-center justify-between gap-4 mb-6 md:mb-8">
               <h2 className="text-xl md:text-2xl font-black uppercase leading-none flex items-center gap-2 md:gap-2">
-                <img src={settingsIcon} alt="" className="w-6 h-6 md:w-7 md:h-7" aria-hidden="true" />
+                <i className="fi fi-rr-menu-burger icon-font-black text-[20px] md:text-[24px] leading-none" aria-hidden="true" />
                 <span className="hidden md:inline translate-y-[1px]">Configurações</span>
               </h2>
               <div className="flex items-center gap-2 md:gap-3">
@@ -2591,7 +2604,7 @@ const App: React.FC = () => {
   if (gameState.mode === 'setup') {
     return (
       <div className="flex items-center justify-center min-h-[100dvh] text-white p-4 md:p-6 text-center overflow-y-auto settings-scroll">
-        <div className="w-full max-w-4xl flex flex-col items-center" style={setupScaledStyle}>
+        <div className="w-full max-w-4xl flex flex-col items-center" style={setupFixedScaledStyle}>
           <img
             src={showDaLicaoLogo}
             alt="Show da Lição"
@@ -2661,7 +2674,6 @@ const App: React.FC = () => {
 
         {updateButton}
         {settingsButton}
-        {setupZoomFloatingControl}
         {updateDialog}
         {appFooter}
       </div>
@@ -2735,7 +2747,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 backdrop-blur-sm border-0 flex items-center justify-center">
-                <img src={tempoIcon} alt="" className="w-9 h-9 md:w-10 md:h-10 opacity-70" aria-hidden="true" />
+                <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none opacity-70" aria-hidden="true" />
               </div>
 
               <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
@@ -2751,7 +2763,7 @@ const App: React.FC = () => {
               <p className="text-base md:text-xl font-semibold text-gray-700 leading-relaxed mb-4">Volte na tela inicial e siga os seguintes passos:</p>
               <p className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm md:text-lg font-black text-gray-800">
                 Configuração
-                <img src={settingsIcon} alt="Ícone de configurações" className="w-5 h-5 md:w-6 md:h-6" />
+                <i className="fi fi-rr-menu-burger icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
                 -&gt; Perguntas -&gt; Gerar Perguntas.
               </p>
             </div>
@@ -2814,7 +2826,7 @@ const App: React.FC = () => {
                   aria-label="Iniciar contador de 10 segundos"
                   title="Tempo 10s"
                 >
-                  <img src={tempoIcon} alt="" className="w-9 h-9 md:w-10 md:h-10" aria-hidden="true" />
+                  <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none" aria-hidden="true" />
                 </button>
 
                 <div

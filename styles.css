@@ -63,6 +63,14 @@ button {
   touch-action: manipulation;
 }
 
+.icon-black {
+  filter: brightness(0) saturate(100%);
+}
+
+.icon-font-black {
+  color: #000 !important;
+}
+
 input:not([type='range']):not([type='color']),
 select,
 textarea {
