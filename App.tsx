@@ -5,7 +5,7 @@ import expandIcon from './img/expandir.svg';
 import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
 import updateIcon from './img/Atualizar.svg';
-import showDaLicaoLogo from './img/Showdalicao.png';
+import showDaLicaoLogo from './img/Show da Lição.webp';
 
 import openingAudioTrack from './Abertura.mp3';
 import tenSecondsAudioTrack from './10s.mp3';
@@ -33,6 +33,19 @@ type FontOption = {
   id: string;
   label: string;
   family: string;
+};
+
+type SetupIcon = {
+  iconClass: string;
+  label: string;
+};
+
+type SetupBackgroundIcon = SetupIcon & {
+  top: string;
+  left: string;
+  size: string;
+  opacity: string;
+  rotate: string;
 };
 
 const COLOR_THEMES: ColorTheme[] = [
@@ -68,6 +81,8 @@ const COLOR_THEMES: ColorTheme[] = [
     primary: '#4361ee',
     accent: '#4cc9f0'
   }
+  
+  
 ];
 
 const FONT_OPTIONS: FontOption[] = [
@@ -78,6 +93,38 @@ const FONT_OPTIONS: FontOption[] = [
   { id: 'roboto-condensed-bold', label: 'Roboto Condensed Bold', family: 'Roboto Condensed, sans-serif' },
   { id: 'roboto-condensed-black', label: 'Roboto Condensed Black', family: 'Roboto Condensed, sans-serif' },
   { id: 'roboto-extralight', label: 'Roboto ExtraLight', family: 'Roboto, sans-serif' }
+];
+
+const SETUP_ICONS: SetupIcon[] = [
+  { iconClass: 'fi fi-rr-book-alt', label: 'Livro' },
+  { iconClass: 'fi fi-rr-glasses', label: 'Óculos' },
+  { iconClass: 'fi fi-rr-library', label: 'Biblioteca' },
+  { iconClass: 'fi fi-rr-pencil', label: 'Lápis' },
+  { iconClass: 'fi fi-rr-pen-nib', label: 'Caneta' },
+  { iconClass: 'fi fi-rr-reading', label: 'Leitura' }
+];
+
+const SETUP_BACKGROUND_ICONS: SetupBackgroundIcon[] = [
+  { ...SETUP_ICONS[0], top: '6%', left: '7%', size: '5.5rem', opacity: '0.11', rotate: '-18deg' },
+  { ...SETUP_ICONS[1], top: '10%', left: '80%', size: '4.75rem', opacity: '0.09', rotate: '14deg' },
+  { ...SETUP_ICONS[2], top: '22%', left: '16%', size: '4.25rem', opacity: '0.12', rotate: '8deg' },
+  { ...SETUP_ICONS[3], top: '24%', left: '70%', size: '5rem', opacity: '0.1', rotate: '-10deg' },
+  { ...SETUP_ICONS[4], top: '2%', left: '42%', size: '4.4rem', opacity: '0.08', rotate: '18deg' },
+  { ...SETUP_ICONS[5], top: '14%', left: '48%', size: '3.9rem', opacity: '0.07', rotate: '-6deg' },
+  { ...SETUP_ICONS[1], top: '18%', left: '88%', size: '4.2rem', opacity: '0.09', rotate: '-16deg' },
+  { ...SETUP_ICONS[0], top: '36%', left: '8%', size: '6rem', opacity: '0.08', rotate: '-8deg' },
+  { ...SETUP_ICONS[4], top: '46%', left: '26%', size: '5.4rem', opacity: '0.08', rotate: '9deg' },
+  { ...SETUP_ICONS[5], top: '38%', left: '52%', size: '4.8rem', opacity: '0.07', rotate: '-20deg' },
+  { ...SETUP_ICONS[1], top: '54%', left: '84%', size: '5.25rem', opacity: '0.1', rotate: '20deg' },
+  { ...SETUP_ICONS[2], top: '60%', left: '45%', size: '4.1rem', opacity: '0.08', rotate: '11deg' },
+  { ...SETUP_ICONS[3], top: '64%', left: '12%', size: '4.8rem', opacity: '0.09', rotate: '-12deg' },
+  { ...SETUP_ICONS[4], top: '74%', left: '18%', size: '4.9rem', opacity: '0.09', rotate: '-14deg' },
+  { ...SETUP_ICONS[5], top: '76%', left: '72%', size: '5.75rem', opacity: '0.11', rotate: '12deg' },
+  { ...SETUP_ICONS[0], top: '84%', left: '6%', size: '4.3rem', opacity: '0.07', rotate: '15deg' },
+  { ...SETUP_ICONS[1], top: '86%', left: '38%', size: '4.9rem', opacity: '0.08', rotate: '-9deg' },
+  { ...SETUP_ICONS[2], top: '84%', left: '84%', size: '4.4rem', opacity: '0.08', rotate: '6deg' },
+  { ...SETUP_ICONS[5], top: '40%', left: '42%', size: '4.5rem', opacity: '0.08', rotate: '-12deg' },
+  { ...SETUP_ICONS[3], top: '50%', left: '60%', size: '4.6rem', opacity: '0.08', rotate: '10deg' }
 ];
 
 const DEFAULT_QUESTION_FONT_ID = 'roboto-condensed-bold';
@@ -732,9 +779,7 @@ const App: React.FC = () => {
         '    source: {',
         `      type: ${JSON.stringify(item.source.type)},`,
         `      reference: ${JSON.stringify(item.source.reference)}`,
-        '    },',
-        `    optionCount: ${Math.max(2, Math.min(QUESTION_OPTION_KEYS.length, Number(item.optionCount) || 4))},`,
-        `    points: ${Math.max(1, Math.round(Number(item.points) || 1000))}`,
+        '    }',
         '  }'
       ].join('\n');
     });
@@ -743,7 +788,7 @@ const App: React.FC = () => {
       "import { Question } from './types';",
       '',
       'export const questions: Question[] = [',
-      rows.join(',\n\n'),
+      rows.join(',\n'),
       '];',
       ''
     ].join('\n');
@@ -2604,14 +2649,34 @@ const App: React.FC = () => {
   if (gameState.mode === 'setup') {
     return (
       <div className="flex items-center justify-center min-h-[100dvh] text-white p-4 md:p-6 text-center overflow-y-auto settings-scroll">
-        <div className="w-full max-w-4xl flex flex-col items-center" style={setupFixedScaledStyle}>
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
+          {SETUP_BACKGROUND_ICONS.map((item, index) => (
+            <div
+              key={`${item.label}-${index}`}
+              className="absolute flex items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/90 blur-[0.15px]"
+              style={{
+                top: item.top,
+                left: item.left,
+                width: item.size,
+                height: item.size,
+                opacity: item.opacity,
+                transform: `rotate(${item.rotate})`
+              }}
+            >
+              <i className={`${item.iconClass} text-[2.4rem] md:text-[2.8rem]`} aria-hidden="true" />
+            </div>
+          ))}
+        </div>
+
+        <div className="relative z-10 w-full max-w-4xl flex flex-col items-center" style={setupFixedScaledStyle}>
+
           <img
             src={showDaLicaoLogo}
             alt="Show da Lição"
-            className="w-full max-w-[820px] h-auto object-contain mb-8 md:mb-10 drop-shadow-2xl"
+            className="relative z-10 w-full max-w-[820px] h-auto object-contain mb-8 md:mb-10 drop-shadow-2xl"
           />
 
-          <div className="w-full max-w-md space-y-4 flex flex-col items-center">
+          <div className="relative z-10 w-full max-w-md space-y-4 flex flex-col items-center">
             <button
               onClick={handleStartGame}
               className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-10 rounded-2xl text-2xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"

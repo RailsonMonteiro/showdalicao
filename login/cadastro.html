@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Criar Conta</title>
+
+<link rel="icon" type="ico" href="/img/ico.ico">
+<link rel="stylesheet" href="style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+
+<body>
+
+<div class="container">
+  <div class="card">
+    <div id="form-section">
+      <h2>Cadastro</h2>
+      <p class="msg" id="msg">Crie sua conta para entrar no jogo.</p>
+
+      <input id="nome" type="text" placeholder="Nome Completo" autocomplete="name">
+      <input id="igreja" type="text" placeholder="Igreja" autocomplete="organization">
+      <input id="email" type="email" placeholder="Email" autocomplete="email">
+      <div class="password-field">
+        <input id="senha" type="password" placeholder="Senha" autocomplete="new-password">
+        <button id="toggle-senha" class="password-toggle" type="button" aria-label="Mostrar ou ocultar senha">
+          <i class="ph ph-eye-slash" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="password-field">
+        <input id="confirmarSenha" type="password" placeholder="Confirmar senha" autocomplete="new-password">
+        <button id="toggle-confirmar-senha" class="password-toggle" type="button" aria-label="Mostrar ou ocultar confirmação de senha">
+          <i class="ph ph-eye-slash" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <button id="btn-cadastrar" type="button" onclick="if (window.handleCadastrarClick) window.handleCadastrarClick();">Criar conta</button>
+      <button id="btn-voltar-login" type="button" class="btn-link" onclick="window.location.href='login.html'">Já tenho conta</button>
+    </div>
+
+    <div id="success-section" class="hidden success-card">
+      <h2>Cadastro realizado</h2>
+      <p class="msg success" id="successMsg">Sua conta foi criada com sucesso.</p>
+      <p class="msg" id="successDetail">Agora você já pode voltar para o login e entrar no jogo.</p>
+      <button id="btn-ir-login" type="button">Voltar para o login</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://mgsmtvhwgzsdsihlxczc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_R5BMPMi25Br1Y8diZw1L0g_26oGX7i3";
+const NETWORK_TIMEOUT_MS = 10000;
+const supabase = window.supabase && window.supabase.createClient
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+let lastConnectivityCheckAt = 0;
+let lastConnectivityError = null;
+
+const msg = document.getElementById('msg');
+const btnCadastrar = document.getElementById('btn-cadastrar');
+const btnVoltarLogin = document.getElementById('btn-voltar-login');
+const formSection = document.getElementById('form-section');
+const successSection = document.getElementById('success-section');
+const btnIrLogin = document.getElementById('btn-ir-login');
+
+btnVoltarLogin.addEventListener('click', () => {
+  window.location.href = 'login.html';
+});
+
+btnIrLogin.addEventListener('click', () => {
+  window.location.href = 'login.html';
+});
+
+window.handleCadastrarClick = handleCadastrarClick;
+window.cadastrar = cadastrar;
+
+setupPasswordToggle('senha', 'toggle-senha');
+setupPasswordToggle('confirmarSenha', 'toggle-confirmar-senha');
+
+function setMessage(text, kind) {
+  msg.className = `msg ${kind || ''}`.trim();
+  msg.innerText = text;
+}
+
+async function checkSupabaseConnectivity(force = false) {
+  const now = Date.now();
+  if (!force && (now - lastConnectivityCheckAt) < 20000) {
+    return lastConnectivityError;
+  }
+
+  lastConnectivityCheckAt = now;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_ANON_KEY
+      },
+      signal: controller.signal,
+      cache: 'no-store'
+    });
+
+    if (!response.ok) {
+      lastConnectivityError = `Falha na comunicacao com Supabase (${response.status}).`;
+      return lastConnectivityError;
+    }
+
+    lastConnectivityError = null;
+    return null;
+  } catch (error) {
+    lastConnectivityError = 'Sem comunicacao com o Supabase. Verifique internet, firewall ou chave.';
+    return lastConnectivityError;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function handleCadastrarClick() {
+  setMessage('Processando cadastro...', '');
+
+  if (typeof window.cadastrar !== 'function') {
+    setMessage('Erro interno ao carregar o cadastro. Recarregue a pagina com Ctrl+F5.', 'error');
+    alert('Erro interno: funcao cadastrar nao carregada. Recarregue a pagina com Ctrl+F5.');
+    return;
+  }
+
+  try {
+    window.cadastrar();
+  } catch (err) {
+    const errorText = err instanceof Error ? err.message : 'Erro inesperado no clique de cadastro.';
+    setMessage(errorText, 'error');
+    alert(`Falha ao iniciar cadastro: ${errorText}`);
+  }
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function signUpWithTimeout(payload, timeoutMs) {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error('Tempo esgotado ao comunicar com o servidor. Verifique sua internet e tente novamente.'));
+    }, timeoutMs);
+  });
+
+  return Promise.race([
+    supabase.auth.signUp(payload),
+    timeoutPromise
+  ]);
+}
+
+function setupPasswordToggle(inputId, buttonId) {
+  const input = document.getElementById(inputId);
+  const button = document.getElementById(buttonId);
+
+  if (!input || !button) return;
+
+  const icon = button.querySelector('i');
+
+  button.addEventListener('click', () => {
+    const isHidden = input.type === 'password';
+    input.type = isHidden ? 'text' : 'password';
+
+    if (icon) {
+      icon.className = isHidden ? 'ph ph-eye' : 'ph ph-eye-slash';
+    }
+
+    button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+  });
+}
+
+async function cadastrar() {
+  if (!supabase) {
+    setMessage('Conexão com o banco indisponível.', 'error');
+    alert('Conexão com o banco indisponível. Verifique internet/chave do Supabase.');
+    return;
+  }
+
+  const nome = document.getElementById('nome').value.trim();
+  const igreja = document.getElementById('igreja').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const senha = document.getElementById('senha').value;
+  const confirmarSenha = document.getElementById('confirmarSenha').value;
+
+  if (!nome || !igreja || !email || !senha || !confirmarSenha) {
+    setMessage('Preencha todos os campos.', 'error');
+    alert('Preencha todos os campos.');
+    return;
+  }
+
+  if (!isValidEmail(email)) {
+    setMessage('Digite um email valido.', 'error');
+    alert('Digite um email valido. Exemplo: nome@provedor.com');
+    return;
+  }
+
+  const connectivityError = await checkSupabaseConnectivity();
+  if (connectivityError) {
+    setMessage(connectivityError, 'error');
+    alert(connectivityError);
+    return;
+  }
+
+  if (senha !== confirmarSenha) {
+    setMessage('As senhas não coincidem.', 'error');
+    alert('As senhas não coincidem.');
+    return;
+  }
+
+  btnCadastrar.classList.add('loading');
+  btnCadastrar.disabled = true;
+  setMessage('Criando conta...', '');
+
+  try {
+    console.log('[cadastro] Tentando criar conta para:', email);
+
+    const { data, error } = await signUpWithTimeout({
+      email,
+      password: senha,
+      options: {
+        data: {
+          nome,
+          igreja
+        }
+      }
+    }, 15000);
+
+    btnCadastrar.classList.remove('loading');
+    btnCadastrar.disabled = false;
+
+    if (error) {
+      setMessage(error.message, 'error');
+      alert(`Erro no cadastro: ${error.message}`);
+      return;
+    }
+
+    if (!data || !data.user) {
+      setMessage('Não foi possível confirmar criação da conta. Tente novamente.', 'error');
+      alert('Não foi possível confirmar criação da conta.');
+      return;
+    }
+
+    formSection.classList.add('hidden');
+    successSection.classList.remove('hidden');
+
+    const successMsg = document.getElementById('successMsg');
+    const successDetail = document.getElementById('successDetail');
+
+    successMsg.innerText = 'Cadastro realizado com sucesso!';
+    successDetail.innerText = data.session
+      ? 'Sua conta já está pronta. Toque em voltar para o login para entrar.'
+      : 'Verifique seu email para confirmar a conta e depois volte para entrar.';
+  } catch (err) {
+    btnCadastrar.classList.remove('loading');
+    btnCadastrar.disabled = false;
+
+    const errorText = err instanceof Error ? err.message : 'Erro inesperado ao cadastrar.';
+    setMessage(errorText, 'error');
+    alert(`Falha no cadastro: ${errorText}`);
+    console.error('[cadastro] Erro inesperado:', err);
+  }
+}
+
+checkSupabaseConnectivity(true).then((connectivityError) => {
+  if (connectivityError) {
+    setMessage(connectivityError, 'error');
+  } else {
+    setMessage('Conexao com banco OK. Crie sua conta para entrar no jogo.', 'success');
+  }
+});
+</script>
+
+</body>
+</html>

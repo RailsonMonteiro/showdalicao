@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quiz ES</title>
+
+<link rel="stylesheet" href="style.css">
+<link rel="icon" type="ico" href="/img/ico.ico">
+
+<link rel='stylesheet' href='https://cdn-uicons.flaticon.com/2.1.0/uicons-regular-rounded/css/uicons-regular-rounded.css'>
+<link rel='stylesheet' href='https://cdn-uicons.flaticon.com/2.1.0/uicons-thin-rounded/css/uicons-thin-rounded.css'>
+
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<script src="https://unpkg.com/feather-icons"></script>
+<link href="https://cdn.jsdelivr.net/npm/heroicons-css@0.4.2/heroicons.min.css" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+
+<body>
+
+<div class="container">
+
+<div id="auth-section">
+
+<div id="login-card" class="card">
+<h2><img src="/img/Show da Lição.webp" width="60%"></h2>
+
+<input id="login_email" type="email" placeholder="Email">
+
+<div class="password-field">
+<input id="login_senha" type="password" placeholder="Senha">
+<button id="toggle-login-senha" class="password-toggle" type="button" aria-label="Mostrar ou ocultar senha">
+<i class="ph ph-eye-slash" aria-hidden="true"></i>
+</button>
+</div>
+
+<button id="btn-login" type="button" onclick="if (window.login) window.login();">
+<i class="ph ph-sign-in"></i> Entrar
+</button>
+
+<p style="text-align:center; margin-top:10px;">
+<a id="link-recuperar-senha" class="btn-link" href="#">Esqueci minha senha</a>
+</p>
+
+<button id="btn-abrir-cadastro" type="button" class="btn-link" onclick="window.location.href='cadastro.html'">
+<i class="ph ph-user"></i> Criar conta
+</button>
+
+<p id="auth-msg" class="msg"></p>
+</div>
+
+</div>
+
+<div id="app" class="hidden">
+
+<div class="header card">
+<h2>🏆 Ranking</h2>
+<p>Olá, <b id="userNome"></b></p>
+<p id="app-msg" class="msg"></p>
+</div>
+
+<div class="card">
+<button onclick="simularQuiz()">Finalizar Quiz</button>
+</div>
+
+<div class="card">
+<h3>Top Jogadores</h3>
+<div id="ranking"></div>
+</div>
+
+<button onclick="logout()">Sair</button>
+
+</div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://mgsmtvhwgzsdsihlxczc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_R5BMPMi25Br1Y8diZw1L0g_26oGX7i3";
+const NETWORK_TIMEOUT_MS = 10000;
+
+const supabase = window.supabase && window.supabase.createClient
+? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+: null;
+
+let lastConnectivityCheckAt = 0;
+let lastConnectivityError = null;
+
+window.login = login;
+window.recuperarSenha = recuperarSenha;
+window.logout = logout;
+
+const authMsg = document.getElementById('auth-msg');
+const appMsg = document.getElementById('app-msg');
+
+function setAuthMessage(text, kind = '') {
+if (authMsg) {
+authMsg.className = `msg ${kind}`.trim();
+authMsg.innerText = text;
+}
+}
+
+function setAppMessage(text, kind = '') {
+if (appMsg) {
+appMsg.className = `msg ${kind}`.trim();
+appMsg.innerText = text;
+}
+}
+
+async function checkSupabaseConnectivity(force = false) {
+	const now = Date.now();
+	if (!force && (now - lastConnectivityCheckAt) < 20000) {
+		return lastConnectivityError;
+	}
+
+	lastConnectivityCheckAt = now;
+
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+
+	try {
+		const response = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+			method: 'GET',
+			headers: {
+				apikey: SUPABASE_ANON_KEY
+			},
+			signal: controller.signal,
+			cache: 'no-store'
+		});
+
+		if (!response.ok) {
+			lastConnectivityError = `Falha na comunicação com Supabase (${response.status}).`;
+			return lastConnectivityError;
+		}
+
+		lastConnectivityError = null;
+		return null;
+	} catch (error) {
+		lastConnectivityError = 'Sem comunicação com o Supabase. Verifique internet, firewall ou chave.';
+		return lastConnectivityError;
+	} finally {
+		clearTimeout(timeoutId);
+	}
+}
+
+async function login() {
+if (!supabase) {
+setAuthMessage("Conexão com o banco indisponível.", "error");
+return;
+}
+
+const email = document.getElementById('login_email').value;
+const senha = document.getElementById('login_senha').value;
+
+setAuthMessage('Conectando ao banco...', '');
+
+const connectivityError = await checkSupabaseConnectivity();
+if (connectivityError) {
+setAuthMessage(connectivityError, 'error');
+return;
+}
+
+const { error } = await supabase.auth.signInWithPassword({
+email,
+password: senha
+});
+
+if (error) {
+setAuthMessage(error.message, 'error');
+return;
+}
+
+iniciarApp();
+}
+
+// RECUPERAÇÃO DE SENHA
+async function recuperarSenha() {
+if (!supabase) {
+setAuthMessage("Conexão com o banco indisponível.", "error");
+return;
+}
+
+const email = document.getElementById('login_email').value;
+
+if (!email) {
+setAuthMessage("Digite seu email para recuperar a senha.", 'error');
+return;
+}
+
+const connectivityError = await checkSupabaseConnectivity();
+if (connectivityError) {
+setAuthMessage(connectivityError, 'error');
+return;
+}
+
+const { error } = await supabase.auth.resetPasswordForEmail(email, {
+redirectTo: new URL("resetsenha.html", window.location.href).toString()
+});
+
+if (error) {
+setAuthMessage(error.message, 'error');
+} else {
+setAuthMessage("Email de recuperação enviado!", 'success');
+}
+}
+
+// INICIAR APP
+async function iniciarApp() {
+if (!supabase) {
+setAuthMessage("Conexão com o banco indisponível.", "error");
+return;
+}
+setAppMessage('Verificando acesso ao banco...', '');
+
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+setAppMessage('Usuário não encontrado na sessão.', 'error');
+location.reload();
+return;
+}
+
+const { data, error } = await supabase
+.from("profiles")
+.select("nome")
+.eq("id", user.id)
+.maybeSingle();
+
+if (error) {
+setAppMessage('Não foi possível ler a tabela profiles. Verifique se a tabela existe e se as permissões estão corretas.', 'error');
+alert('Não foi possível ler a tabela profiles. Verifique o banco de dados.');
+return;
+}
+
+document.getElementById('auth-section').classList.add('hidden');
+document.getElementById('app').classList.remove('hidden');
+
+if (data) document.getElementById('userNome').innerText = data.nome;
+
+setAppMessage('Tabela profiles respondendo corretamente.', 'success');
+
+carregarRanking();
+}
+
+// RANKING
+async function carregarRanking() {
+if (!supabase) return;
+
+const { data, error } = await supabase
+.from("ranking")
+.select(`pontuacao, profiles(nome)`)
+.order("pontuacao", { ascending: false })
+.limit(10);
+
+if (error) {
+setAppMessage('Não foi possível carregar o ranking. Verifique a tabela ranking.', 'error');
+return;
+}
+
+if (!data) return;
+
+document.getElementById('ranking').innerHTML = data.map((item, i) => `
+<div>
+#${i+1} ${(item.profiles && item.profiles.nome) ? item.profiles.nome : 'Sem nome'} - ${item.pontuacao} pts
+</div>
+`).join("");
+}
+
+// QUIZ
+async function simularQuiz() {
+if (!supabase) {
+alert("Conexão com o banco indisponível.");
+return;
+}
+
+const pontos = Math.floor(Math.random() * 100);
+
+if (confirm("Você fez " + pontos + " pontos! Salvar?")) {
+const { data: { user } } = await supabase.auth.getUser();
+
+await supabase.from("ranking").upsert({
+user_id: user.id,
+pontuacao: pontos
+});
+
+carregarRanking();
+}
+}
+
+// LOGOUT
+async function logout() {
+if (!supabase) {
+location.reload();
+return;
+}
+
+await supabase.auth.signOut();
+location.reload();
+}
+
+// AUTO LOGIN
+if (supabase) {
+supabase.auth.getSession().then(({ data }) => {
+if (data.session) iniciarApp();
+});
+
+checkSupabaseConnectivity(true).then((connectivityError) => {
+if (connectivityError) {
+setAuthMessage(connectivityError, 'error');
+} else {
+setAuthMessage('Conexao com banco OK.', 'success');
+}
+});
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+const btnAbrirCadastro = document.getElementById('btn-abrir-cadastro');
+if (btnAbrirCadastro) btnAbrirCadastro.addEventListener('click', () => {
+window.location.href = 'cadastro.html';
+});
+
+const linkRecuperarSenha = document.getElementById('link-recuperar-senha');
+if (linkRecuperarSenha) linkRecuperarSenha.addEventListener('click', (event) => {
+event.preventDefault();
+recuperarSenha();
+});
+
+setupPasswordToggle('login_senha', 'toggle-login-senha');
+});
+
+function setupPasswordToggle(inputId, buttonId) {
+const input = document.getElementById(inputId);
+const button = document.getElementById(buttonId);
+
+if (!input || !button) return;
+
+const icon = button.querySelector('i');
+
+button.addEventListener('click', () => {
+const isHidden = input.type === 'password';
+input.type = isHidden ? 'text' : 'password';
+
+if (icon) {
+icon.className = isHidden ? 'ph ph-eye' : 'ph ph-eye-slash';
+}
+
+button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+});
+}
+</script>
+
+</body>
+</html>

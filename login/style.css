@@ -1,0 +1,237 @@
+:root {
+  --primary: #1877f2;
+  --secondary: #28a745;
+  --danger: #ff4444;
+  --bg: #f0f2f5;
+  --white: #ffffff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* CONTAINER */
+.container {
+  width: 100%;
+  max-width: 480px;
+  padding: 20px;
+}
+
+/* CARD COM ANIMAÇÃO */
+.card {
+  background: var(--white);
+  padding: 20px;
+  border-radius: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+  animation: fadeIn 0.5s ease;
+}
+
+/* TÍTULOS */
+h2, h3 {
+  margin: 0 0 15px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* INPUT */
+input {
+  width: 100%;
+  padding: 14px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  font-size: 16px;
+  transition: 0.2s;
+}
+
+input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.password-field {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.password-field input {
+  margin-bottom: 0;
+  padding-right: 56px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50%;
+  background: #eef3fb !important;
+  color: #7a8796 !important;
+  cursor: pointer;
+  box-shadow: none;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+
+.password-toggle:hover {
+  opacity: 1;
+  color: var(--primary);
+  background: #e4efff !important;
+}
+
+.password-toggle svg,
+.password-toggle i {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+/* BOTÕES */
+button {
+  width: 100%;
+  padding: 14px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 12px;
+  background: var(--primary);
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.2s;
+}
+
+button:hover { opacity: 0.9; }
+
+button:active {
+  transform: scale(0.97);
+}
+
+/* BOTÃO LOADING */
+button.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* BOTÃO LINK */
+.btn-link {
+  background: none;
+  color: var(--primary);
+  font-size: 14px;
+  margin-top: 5px;
+  text-decoration: none;
+}
+
+/* ÍCONES */
+i, svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: middle;
+}
+
+.feather {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+/* RANKING */
+.ranking-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+}
+
+.top1 { background: #fff4cc; font-weight: bold; }
+.top2 { background: #e6f0ff; }
+.top3 { background: #f0e6ff; }
+
+/* FEEDBACK */
+.msg {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 14px;
+  min-height: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+.msg.success {
+  color: var(--secondary);
+}
+
+.msg.error {
+  color: var(--danger);
+}
+
+.success-card {
+  text-align: center;
+}
+
+/* SPINNER */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid #fff;
+  border-top: 3px solid transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ANIMAÇÕES */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* RESPONSIVO */
+@media (min-width: 768px) {
+  .container {
+    max-width: 600px;
+  }
+}
+
+@media (min-width: 1024px) {
+  body {
+    justify-content: center;
+  }
+
+  .container {
+    max-width: 700px;
+  }
+}
+
+/* UTIL */
+.hidden { display: none; }

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Nova Senha</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@phosphor-icons/web"></script>
+<link rel="icon" type="ico" href="/img/ico.ico">
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="container">
+  <div class="card">
+    <div id="reset-section">
+      <h2>🔐 Nova Senha</h2>
+      <p class="msg" id="msg">Use o link enviado por email e crie uma nova senha.</p>
+
+      <div class="password-field">
+        <input id="novaSenha" type="password" placeholder="Nova senha" autocomplete="new-password">
+        <button id="toggle-nova-senha" class="password-toggle" type="button" aria-label="Mostrar ou ocultar nova senha">
+          <i class="ph ph-eye-slash" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="password-field">
+        <input id="confirmarSenha" type="password" placeholder="Confirmar senha" autocomplete="new-password">
+        <button id="toggle-confirmar-senha" class="password-toggle" type="button" aria-label="Mostrar ou ocultar confirmação de senha">
+          <i class="ph ph-eye-slash" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <button id="btn-salvar" type="button">Salvar nova senha</button>
+      <button id="btn-voltar-login" type="button" class="btn-link" onclick="window.location.href='login.html'">Voltar para o login</button>
+    </div>
+
+    <div id="success-section" class="hidden success-card">
+      <h2>Senha atualizada</h2>
+      <p class="msg success" id="successMsg">Sua senha foi alterada com sucesso.</p>
+      <p class="msg" id="successDetail">Agora você já pode voltar para o login e entrar novamente.</p>
+      <button id="btn-ir-login" type="button">Voltar para o login</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://mgsmtvhwgzsdsihlxczc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_R5BMPMi25Br1Y8diZw1L0g_26oGX7i3";
+const supabase = window.supabase && window.supabase.createClient
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+const msg = document.getElementById('msg');
+const btnSalvar = document.getElementById('btn-salvar');
+const btnVoltarLogin = document.getElementById('btn-voltar-login');
+const resetSection = document.getElementById('reset-section');
+const successSection = document.getElementById('success-section');
+const btnIrLogin = document.getElementById('btn-ir-login');
+
+btnSalvar.addEventListener('click', alterarSenha);
+btnVoltarLogin.addEventListener('click', () => {
+  window.location.href = 'login.html';
+});
+btnIrLogin.addEventListener('click', () => {
+  window.location.href = 'login.html';
+});
+
+setupPasswordToggle('novaSenha', 'toggle-nova-senha');
+setupPasswordToggle('confirmarSenha', 'toggle-confirmar-senha');
+
+function setMessage(text, kind) {
+  msg.className = `msg ${kind || ''}`.trim();
+  msg.innerText = text;
+}
+
+function setupPasswordToggle(inputId, buttonId) {
+  const input = document.getElementById(inputId);
+  const button = document.getElementById(buttonId);
+
+  if (!input || !button) return;
+
+  const icon = button.querySelector('i');
+
+  button.addEventListener('click', () => {
+    const isHidden = input.type === 'password';
+    input.type = isHidden ? 'text' : 'password';
+
+    if (icon) {
+      icon.className = isHidden ? 'ph ph-eye' : 'ph ph-eye-slash';
+    }
+
+    button.setAttribute('aria-label', isHidden ? 'Ocultar senha' : 'Mostrar senha');
+  });
+}
+
+async function alterarSenha() {
+  if (!supabase) {
+    setMessage('Conexão com o banco indisponível.', 'error');
+    return;
+  }
+
+  const senha = document.getElementById('novaSenha').value;
+  const confirmar = document.getElementById('confirmarSenha').value;
+
+  if (senha.length < 6) {
+    setMessage('Senha deve ter no mínimo 6 caracteres.', 'error');
+    return;
+  }
+
+  if (senha !== confirmar) {
+    setMessage('As senhas não coincidem.', 'error');
+    return;
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    setMessage('Abra o link de redefinição enviado por email e tente de novo.', 'error');
+    return;
+  }
+
+  btnSalvar.classList.add('loading');
+  btnSalvar.disabled = true;
+  setMessage('Salvando nova senha...', '');
+
+  const { error } = await supabase.auth.updateUser({
+    password: senha
+  });
+
+  btnSalvar.classList.remove('loading');
+  btnSalvar.disabled = false;
+
+  if (error) {
+    setMessage(error.message, 'error');
+    return;
+  }
+
+  resetSection.classList.add('hidden');
+  successSection.classList.remove('hidden');
+
+  const successMsg = document.getElementById('successMsg');
+  const successDetail = document.getElementById('successDetail');
+
+  successMsg.innerText = 'Senha atualizada com sucesso!';
+  successDetail.innerText = 'Agora você pode voltar para o login e acessar sua conta.';
+}
+</script>
+
+</body>
+</html>
