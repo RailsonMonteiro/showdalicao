@@ -1,11 +1,15 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { questions } from './questions';
-import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question } from './types';
+import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question, RankingEntry } from './types';
+import { supabase } from './supabaseClient';
 import expandIcon from './img/expandir.svg';
 import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
 import updateIcon from './img/Atualizar.svg';
 import showDaLicaoLogo from './img/Show da Lição.webp';
+import goldMedal from './img/medal_ouro.png';
+import silverMedal from './img/medal_prata.png';
+import bronzeMedal from './img/medal_bronze.png';
 
 import openingAudioTrack from './Abertura.mp3';
 import tenSecondsAudioTrack from './10s.mp3';
@@ -207,6 +211,7 @@ type UpdaterActionResult = {
 type ElectronQuestionsApi = {
   clearQuestionsFile: () => Promise<QuestionsFileResult>;
   saveQuestionsFile: (questionsPayload: Question[]) => Promise<QuestionsFileResult>;
+  loadQuestionsFile: () => Promise<{ ok: boolean; questions?: Question[]; error?: string }>;
   getUpdaterState: () => Promise<UpdaterState>;
   checkForUpdates: () => Promise<UpdaterActionResult>;
   downloadAndInstallUpdate: () => Promise<UpdaterActionResult>;
@@ -364,6 +369,15 @@ const App: React.FC = () => {
   const [showTenSecondsClock, setShowTenSecondsClock] = useState(false);
   const [tenSecondsRemaining, setTenSecondsRemaining] = useState(10);
   const [showTeamNamesModal, setShowTeamNamesModal] = useState(false);
+  const [showRanking, setShowRanking] = useState(false);
+  const [showModeSelection, setShowModeSelection] = useState(false);
+  const [showSoloNameModal, setShowSoloNameModal] = useState(false);
+  const [draftSoloName, setDraftSoloName] = useState('');
+  const [rankings, setRankings] = useState<RankingEntry[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [musicVolume, setMusicVolume] = useState<number>(() => {
     if (typeof window === 'undefined') return DEFAULT_MUSIC_VOLUME;
     const savedRaw = window.localStorage.getItem('musicVolume');
@@ -385,8 +399,8 @@ const App: React.FC = () => {
     const saved = Number(savedRaw);
     return Number.isFinite(saved) ? clamp(saved, 0, 100) : DEFAULT_TEAM_CLOCK_VOLUME;
   });
-  const [draftTeam1Name, setDraftTeam1Name] = useState('Equipe 1');
-  const [draftTeam2Name, setDraftTeam2Name] = useState('Equipe 2');
+  const [draftTeam1Name, setDraftTeam1Name] = useState('');
+  const [draftTeam2Name, setDraftTeam2Name] = useState('');
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[]>([]);
   const [activeQuestions, setActiveQuestions] = useState<Question[]>(questions);
   const [resolvedQuestion, setResolvedQuestion] = useState<Question | null>(null);
@@ -399,16 +413,73 @@ const App: React.FC = () => {
     currentQuestionIndex: 0,
     currentTeamIndex: 0,
     teams: [
-      { name: "Equipe 1", score: 0, lifelinesUsed: [] },
-      { name: "Equipe 2", score: 0, lifelinesUsed: [] }
+      { name: "", score: 0, lifelinesUsed: [] },
+      { name: "", score: 0, lifelinesUsed: [] }
     ],
     selectedOption: null,
     showExplanation: false,
     explanationType: null,
     lifelineResult: null,
     hiddenOptions: [],
-    shuffledQuestions: []
+    shuffledQuestions: [],
+    isSoloMode: false
   });
+
+  const fetchRankings = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('showdalicao')
+        .select('name, score, created_at')
+        .order('score', { ascending: false })
+        .limit(15);
+      
+      if (error) throw error;
+      if (data) {
+        setRankings(data.map(item => ({
+          name: item.name,
+          score: item.score,
+          date: new Date(item.created_at).toLocaleDateString('pt-BR')
+        })));
+      }
+    } catch (err) {
+      console.error('Error fetching rankings:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchRankings();
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAdmin(!!session);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAdmin(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPassword
+      });
+      if (error) throw error;
+      setIsAdmin(true);
+      setShowLoginModal(false);
+      setLoginEmail('');
+      setLoginPassword('');
+    } catch (err: any) {
+      alert('Falha no login: ' + err.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setIsAdmin(false);
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -519,6 +590,15 @@ const App: React.FC = () => {
     void audio.play().catch(() => {
       // Ignora bloqueios de autoplay em contextos sem interação.
     });
+
+    // Carrega perguntas salvas se disponível (Electron)
+    if (electronApi?.loadQuestionsFile) {
+      void electronApi.loadQuestionsFile().then((result) => {
+        if (result.ok && result.questions && result.questions.length > 0) {
+          setActiveQuestions(result.questions);
+        }
+      });
+    }
 
     return () => {
       audio.pause();
@@ -1012,8 +1092,10 @@ const App: React.FC = () => {
     const mimeType = file.type || 'image/png';
     const base64 = await readFileAsBase64(file);
     return {
-      type: 'input_image',
-      image_url: `data:${mimeType};base64,${base64}`
+      type: 'image_url',
+      image_url: {
+        url: `data:${mimeType};base64,${base64}`
+      }
     };
   };
 
@@ -1155,24 +1237,21 @@ const App: React.FC = () => {
       }
 
       const requestBody = {
-        model: 'gpt-4.1-mini',
-        input: [
+        model: 'gpt-4o-mini',
+        messages: [
           {
             role: 'user',
             content: [
-              { type: 'input_text', text: promptText },
+              { type: 'text', text: promptText },
               ...imageInputs
             ]
           }
         ],
-        text: {
-          format: { type: 'json_object' }
-        },
-        temperature: 0.3,
-        max_output_tokens: 4096
+        response_format: { type: 'json_object' },
+        temperature: 0.3
       };
 
-      const response = await fetch('https://api.openai.com/v1/responses', {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1208,7 +1287,7 @@ const App: React.FC = () => {
       }
 
       const result = await response.json();
-      const rawText = String(result?.output_text ?? '').trim();
+      const rawText = String(result?.choices?.[0]?.message?.content ?? '').trim();
 
       if (!rawText) {
         throw new Error('A IA não retornou conteúdo utilizável.');
@@ -1453,23 +1532,53 @@ const App: React.FC = () => {
     };
   }, [showWrongResult, effectsVolume]);
 
-  const handleStartGame = () => {
+  const saveRankingEntries = async (teams: Team[]) => {
+    const now = new Date().toISOString();
+    const entries = teams
+      .filter(team => team.score > 0)
+      .map(team => ({
+        name: team.name,
+        score: team.score,
+        created_at: now
+      }));
+
+    if (entries.length > 0) {
+      try {
+        const { error } = await supabase.from('showdalicao').insert(entries);
+        if (error) throw error;
+        fetchRankings(); // Refresh list
+      } catch (err) {
+        console.error('Error saving rankings:', err);
+      }
+    }
+  };
+
+  const handleStartGame = (isSolo: boolean = false) => {
     stopOpeningAudio();
     setResolvedQuestion(null);
     setSelectedQuestionId(null);
     setSelectedOption(null);
     setIsAdvancingQuestion(false);
+
+    const t1Name = isSolo ? (draftSoloName.trim() || 'Jogador') : draftTeam1Name.trim();
+    const t2Name = isSolo ? 'CPU' : draftTeam2Name.trim();
+
     setGameState(prev => ({ 
       ...prev, 
       mode: 'playing', 
       currentQuestionIndex: 0,
       currentTeamIndex: 0,
+      teams: [
+        { name: t1Name, score: 0, lifelinesUsed: [] },
+        { name: t2Name, score: 0, lifelinesUsed: [] }
+      ],
       selectedOption: null,
       showExplanation: false,
       explanationType: null,
       lifelineResult: null,
       hiddenOptions: [],
-      shuffledQuestions: shuffleArray(activeQuestions) 
+      shuffledQuestions: shuffleArray(activeQuestions),
+      isSoloMode: isSolo
     }));
   };
 
@@ -1515,7 +1624,7 @@ const App: React.FC = () => {
       setGameState(prev => ({
         ...prev,
         currentQuestionIndex: prev.currentQuestionIndex + 1,
-        currentTeamIndex: prev.currentTeamIndex === 0 ? 1 : 0,
+        currentTeamIndex: prev.isSoloMode ? 0 : (prev.currentTeamIndex === 0 ? 1 : 0),
         selectedOption: null,
         showExplanation: false,
         explanationType: null,
@@ -1539,7 +1648,7 @@ const App: React.FC = () => {
       setGameState(prev => ({
         ...prev,
         currentQuestionIndex: prev.currentQuestionIndex + 1,
-        currentTeamIndex: prev.currentTeamIndex === 0 ? 1 : 0,
+        currentTeamIndex: prev.isSoloMode ? 0 : (prev.currentTeamIndex === 0 ? 1 : 0),
         selectedOption: null,
         lifelineResult: null,
         hiddenOptions: []
@@ -1642,17 +1751,18 @@ const App: React.FC = () => {
   };
 
   const openTeamNamesModal = () => {
-    setDraftTeam1Name(gameState.teams[0].name || 'Equipe 1');
-    setDraftTeam2Name(gameState.teams[1].name || 'Equipe 2');
+    setDraftTeam1Name(gameState.teams[0].name);
+    setDraftTeam2Name(gameState.teams[1].name);
     setShowTeamNamesModal(true);
   };
 
   const saveTeamNames = () => {
-    const team1 = draftTeam1Name.trim() || 'Equipe 1';
-    const team2 = draftTeam2Name.trim() || 'Equipe 2';
+    const team1 = draftTeam1Name.trim();
+    const team2 = draftTeam2Name.trim();
     updateTeamName(0, team1);
     updateTeamName(1, team2);
     setShowTeamNamesModal(false);
+    handleStartGame();
   };
 
   const setupScaledStyle: React.CSSProperties = {
@@ -1667,28 +1777,35 @@ const App: React.FC = () => {
 
   const setupZoomFloatingControl = (
     <div
-      className="fixed right-4 bottom-4 z-[80] flex items-center"
+      className="fixed right-4 bottom-4 z-[80] flex flex-col items-end"
       onMouseEnter={() => setShowSetupZoomPanel(true)}
-      onMouseLeave={() => setShowSetupZoomPanel(false)}
+      onMouseLeave={() => {
+        setShowSetupZoomPanel(false);
+      }}
     >
       <div
-        className={`mr-3 bg-white/65 backdrop-blur-md rounded-lg shadow-sm px-3 py-2 flex items-center gap-2.5 min-w-[200px] transition-all duration-200 ease-out ${showSetupZoomPanel ? 'opacity-100 translate-x-0 scale-100' : 'pointer-events-none opacity-0 translate-x-2 scale-95'}`}
+        className={`mb-3 bg-white/65 backdrop-blur-md rounded-lg shadow-lg px-3 py-2 flex items-center gap-2.5 min-w-[200px] transition-all duration-200 ease-out ${showSetupZoomPanel ? 'opacity-100 translate-y-0 scale-100' : 'pointer-events-none opacity-0 translate-y-2 scale-95 h-0 overflow-hidden mb-0'}`}
         style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
       >
-        <input
-          type="range"
-          min={MIN_ZOOM}
-          max={MAX_ZOOM}
-          step={1}
-          value={setupZoomLevel}
-          onChange={(e) => setSetupZoomLevel(Number(e.target.value))}
-          className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-          aria-label="Barra de zoom inicial"
-        />
-        <span className="text-xs font-black min-w-12 text-right" style={{ color: activeTheme.primary }}>{setupZoomLevel}%</span>
+        <div className="flex flex-col w-full">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] uppercase tracking-wide font-black" style={{ color: activeTheme.primary }}>Zoom</span>
+            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{setupZoomLevel}%</span>
+          </div>
+          <input
+            type="range"
+            min={MIN_ZOOM}
+            max={MAX_ZOOM}
+            step={1}
+            value={setupZoomLevel}
+            onChange={(e) => setSetupZoomLevel(Number(e.target.value))}
+            className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
+            aria-label="Barra de zoom inicial"
+          />
+        </div>
       </div>
       <button
-        onClick={() => setShowSetupZoomPanel(prev => !prev)}
+        onClick={() => setShowSetupZoomPanel(true)}
         className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-transparent hover:bg-transparent backdrop-blur-sm shadow-none border-0 flex items-center justify-center opacity-40 hover:opacity-100 transition-all duration-200 ease-out active:scale-95"
         style={{ color: activeTheme.primary }}
         aria-label="Abrir controle de zoom inicial"
@@ -1727,7 +1844,8 @@ const App: React.FC = () => {
 
   const questionOptionsPanel = (
     <div
-      className="fixed bottom-4 right-4 z-[70]"
+      className="fixed bottom-4 right-4 z-[70] flex flex-col items-end"
+      onMouseEnter={() => setShowQuestionOptionsPanel(true)}
       onMouseLeave={() => {
         setShowQuestionOptionsPanel(false);
         setShowGameZoomPanel(false);
@@ -1735,10 +1853,14 @@ const App: React.FC = () => {
       }}
     >
       <div
-        className={`absolute bottom-full right-0 mb-2 w-[220px] rounded-lg bg-white/65 px-3 py-2 shadow-lg transition-all duration-250 ease-out ${showGameZoomPanel ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'}`}
+        className={`mb-3 w-[220px] rounded-lg bg-white/65 backdrop-blur-md px-3 py-2 shadow-xl transition-all duration-250 ease-out ${showGameZoomPanel ? 'opacity-100 translate-y-0 scale-100' : 'pointer-events-none opacity-0 translate-y-2 scale-95 h-0 overflow-hidden'}`}
         style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
       >
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-col w-full">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] uppercase tracking-wide font-black" style={{ color: activeTheme.primary }}>Zoom</span>
+            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{gameZoomLevel}%</span>
+          </div>
           <input
             type="range"
             min={MIN_ZOOM}
@@ -1749,18 +1871,17 @@ const App: React.FC = () => {
             className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
             aria-label="Barra de zoom da tela de perguntas"
           />
-          <span className="text-xs min-w-12 text-right" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{gameZoomLevel}%</span>
         </div>
       </div>
 
       <div
-        className={`absolute bottom-full right-0 mb-2 w-[250px] rounded-lg bg-white/65 px-3 py-2 shadow-lg transition-all duration-250 ease-out ${showQuestionVolumePanel ? 'opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'}`}
+        className={`mb-3 w-[250px] rounded-lg bg-white/65 backdrop-blur-md px-3 py-2 shadow-xl transition-all duration-250 ease-out ${showQuestionVolumePanel ? 'opacity-100 translate-y-0 scale-100' : 'pointer-events-none opacity-0 translate-y-2 scale-95 h-0 overflow-hidden'}`}
         style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
       >
         <div className="mb-2">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] uppercase tracking-wide" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>Efeito</span>
-            <span className="text-[10px]" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{effectsVolume}%</span>
+            <span className="text-[10px] uppercase tracking-wide font-black" style={{ color: activeTheme.primary }}>Efeito</span>
+            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{effectsVolume}%</span>
           </div>
           <input
             type="range"
@@ -1775,8 +1896,8 @@ const App: React.FC = () => {
         </div>
         <div>
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[10px] uppercase tracking-wide" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>Time</span>
-            <span className="text-[10px]" style={{ color: '#000', textShadow: 'none', WebkitTextStroke: 0, fontFamily: 'Arial, sans-serif', fontWeight: 400, fontStyle: 'normal' }}>{teamClockVolume}%</span>
+            <span className="text-[10px] uppercase tracking-wide font-black" style={{ color: activeTheme.primary }}>Time</span>
+            <span className="text-[10px] font-black" style={{ color: activeTheme.primary }}>{teamClockVolume}%</span>
           </div>
           <input
             type="range"
@@ -1792,76 +1913,68 @@ const App: React.FC = () => {
       </div>
 
       <div className="flex items-end gap-2">
-      <div
-        className={`flex h-10 md:h-11 items-center gap-1.5 rounded-lg border border-white/25 bg-white/15 px-1.5 py-0 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out ${showQuestionOptionsPanel ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 translate-x-4'}`}
-      >
-        <button
-          onClick={() => {
-            void handleToggleFullscreen();
-          }}
-          className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
-          aria-label={isFullscreenMode ? 'Sair da tela cheia' : 'Entrar em tela cheia'}
-          title={isFullscreenMode ? 'Sair da tela cheia' : 'Tela cheia'}
-          style={{ color: activeTheme.primary }}
+        <div
+          className={`flex h-10 md:h-11 items-center gap-1.5 rounded-lg border border-white/25 bg-white/15 px-1.5 py-0 shadow-lg backdrop-blur-sm transition-all duration-300 ease-out ${showQuestionOptionsPanel ? 'opacity-100 translate-x-0' : 'pointer-events-none opacity-0 translate-x-4'}`}
         >
-          {isFullscreenMode ? (
-            <i className="fi fi-rs-compress icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
-          ) : (
-            <img src={expandIcon} alt="" className="icon-black w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
-          )}
-        </button>
+          <button
+            onClick={() => {
+              void handleToggleFullscreen();
+            }}
+            className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+            aria-label={isFullscreenMode ? 'Sair da tela cheia' : 'Entrar em tela cheia'}
+            title={isFullscreenMode ? 'Sair da tela cheia' : 'Tela cheia'}
+            style={{ color: activeTheme.primary }}
+          >
+            {isFullscreenMode ? (
+              <i className="fi fi-rs-compress icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
+            ) : (
+              <img src={expandIcon} alt="" className="icon-black w-4 h-4 md:w-5 md:h-5" aria-hidden="true" />
+            )}
+          </button>
 
-        <button
-          onClick={() => {
-            setShowQuestionVolumePanel(false);
-            setShowGameZoomPanel(prev => !prev);
-          }}
-          className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
-          aria-label="Abrir controle de zoom da tela de perguntas"
-          title="Zoom Perguntas"
-          style={{ color: activeTheme.primary }}
-        >
-          <i className="fi fi-rr-zoom-in icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
-        </button>
-
-        <button
-          onClick={() => {
-            setShowGameZoomPanel(false);
-            setShowQuestionVolumePanel(prev => !prev);
-          }}
-          className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
-          aria-label="Abrir controle de volume"
-          title="Volumes"
-          style={{ color: activeTheme.primary }}
-        >
-          <i className="fi fi-rr-volume icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
-        </button>
-
-      </div>
-
-      <button
-        onClick={() => {
-          setShowQuestionOptionsPanel(prev => {
-            const next = !prev;
-            if (!next) {
-              setShowGameZoomPanel(false);
+          <button
+            onClick={() => {
               setShowQuestionVolumePanel(false);
-            }
-            return next;
-          });
-        }}
-        className="group w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
-        aria-label={showQuestionOptionsPanel ? 'Recolher opções' : 'Abrir opções'}
-        title={showQuestionOptionsPanel ? 'Recolher opções' : 'Abrir opções'}
-        style={{ color: activeTheme.primary }}
-      >
-        <img
-          src={showQuestionOptionsPanel ? rightOptionsIcon : leftOptionsIcon}
-          alt=""
-          className="icon-black w-4 h-4 md:w-5 md:h-5 opacity-30 transition-opacity duration-200 ease-out group-hover:opacity-100"
-          aria-hidden="true"
-        />
-      </button>
+              setShowGameZoomPanel(true);
+            }}
+            className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+            aria-label="Abrir controle de zoom da tela de perguntas"
+            title="Zoom Perguntas"
+            style={{ color: activeTheme.primary }}
+          >
+            <i className="fi fi-rr-zoom-in icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
+          </button>
+
+          <button
+            onClick={() => {
+              setShowGameZoomPanel(false);
+              setShowQuestionVolumePanel(true);
+            }}
+            className="w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+            aria-label="Abrir controle de volume"
+            title="Volumes"
+            style={{ color: activeTheme.primary }}
+          >
+            <i className="fi fi-rr-volume icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
+          </button>
+        </div>
+
+        <button
+          onClick={() => {
+            setShowQuestionOptionsPanel(true);
+          }}
+          className="group w-10 h-10 md:w-11 md:h-11 bg-transparent hover:bg-transparent rounded-lg border-0 shadow-none flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+          aria-label={showQuestionOptionsPanel ? 'Recolher opções' : 'Abrir opções'}
+          title={showQuestionOptionsPanel ? 'Recolher opções' : 'Abrir opções'}
+          style={{ color: activeTheme.primary }}
+        >
+          <img
+            src={showQuestionOptionsPanel ? rightOptionsIcon : leftOptionsIcon}
+            alt=""
+            className="icon-black w-4 h-4 md:w-5 md:h-5 opacity-30 transition-opacity duration-200 ease-out group-hover:opacity-100"
+            aria-hidden="true"
+          />
+        </button>
       </div>
     </div>
   );
@@ -2077,6 +2190,45 @@ const App: React.FC = () => {
     </div>
   ) : null;
 
+  const loginModal = showLoginModal && (
+    <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-4 p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
+        <p className="text-sm uppercase font-black mb-4">Login Administrador</p>
+        <div className="space-y-4 mb-6">
+          <input
+            type="email"
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+            placeholder="E-mail"
+          />
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+            placeholder="Senha"
+          />
+        </div>
+        <div className="flex items-center justify-end gap-3">
+          <button
+            onClick={() => setShowLoginModal(false)}
+            className="rounded-xl px-5 py-3 bg-gray-100 text-gray-700 font-black uppercase text-sm"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleLogin}
+            className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110"
+            style={{ backgroundColor: activeTheme.primary }}
+          >
+            Entrar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (showSettings && gameState.mode !== 'playing') {
     const settingsZoomStyle: React.CSSProperties = {
       zoom: `${setupZoomLevel}%`
@@ -2141,6 +2293,20 @@ const App: React.FC = () => {
                       </button>
                     );
                   })}
+                </div>
+
+                <div className="mt-auto pt-6 border-t border-gray-200/50 mt-8">
+                  <button
+                    onClick={isAdmin ? handleLogout : () => setShowLoginModal(true)}
+                    className={`w-full text-left px-4 py-3 rounded-xl font-black uppercase text-[10px] md:text-xs transition-all border flex items-center gap-3 ${
+                      isAdmin 
+                        ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
+                        : 'bg-white/60 text-gray-500 border-gray-200 hover:bg-white'
+                    }`}
+                  >
+                    <i className={`fi ${isAdmin ? 'fi-rr-sign-out-alt' : 'fi-rr-user-lock'} text-base`} aria-hidden="true" />
+                    {isAdmin ? 'Sair do Admin' : 'Acesso Restrito'}
+                  </button>
                 </div>
               </aside>
 
@@ -2336,7 +2502,7 @@ const App: React.FC = () => {
                               className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-bold text-gray-700 outline-none"
                             />
                             {questionCount < MIN_QUESTION_COUNT && (
-                              <p className="mt-2 text-xs font-black text-red-600">A quantidade minima de perguntas e {MIN_QUESTION_COUNT}.</p>
+                              <p className="mt-2 text-xs font-black text-red-600">A quantidade mínima de perguntas é {MIN_QUESTION_COUNT}.</p>
                             )}
                           </div>
 
@@ -2642,6 +2808,7 @@ const App: React.FC = () => {
         {setupZoomFloatingControl}
         {updateDialog}
         {appFooter}
+        {loginModal}
       </div>
     );
   }
@@ -2678,19 +2845,96 @@ const App: React.FC = () => {
 
           <div className="relative z-10 w-full max-w-md space-y-4 flex flex-col items-center">
             <button
-              onClick={handleStartGame}
+              onClick={() => setShowModeSelection(true)}
               className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-10 rounded-2xl text-2xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"
             >
-              Iniciar Jogo
+              Quiz ES
             </button>
             <button
-              onClick={openTeamNamesModal}
-              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-8 rounded-2xl text-xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"
+              onClick={() => setShowRanking(true)}
+              className="inline-flex flex-col items-center justify-center text-white hover:text-amber-400 font-black py-4 px-8 rounded-2xl transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95 group"
+              title="Ranking"
             >
-              Alterar Equipes
+              <i className="fi fi-rr-trophy text-3xl mb-1 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
+              <span className="text-[10px] uppercase tracking-[0.2em] font-black opacity-70 group-hover:opacity-100">Ranking</span>
             </button>
           </div>
+
         </div>
+
+        {showModeSelection && (
+          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border-4 p-8 text-center" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
+              <p className="text-sm uppercase font-black mb-6">Escolha o modo de jogo</p>
+              <div className="flex flex-col gap-4">
+                <button
+                  onClick={() => {
+                    setShowModeSelection(false);
+                    openTeamNamesModal();
+                  }}
+                  className="w-full rounded-2xl py-4 text-white font-black uppercase text-lg shadow-lg transition-all duration-200 ease-out hover:brightness-110"
+                  style={{ backgroundColor: activeTheme.primary }}
+                >
+                  Equipes
+                </button>
+                <button
+                  onClick={() => {
+                    setShowModeSelection(false);
+                    setShowSoloNameModal(true);
+                  }}
+                  className="w-full rounded-2xl py-4 bg-gray-100 text-gray-700 font-black uppercase text-lg hover:bg-gray-200 transition-all duration-200"
+                >
+                  Solo
+                </button>
+                <button
+                  onClick={() => setShowModeSelection(false)}
+                  className="mt-2 text-xs uppercase font-black text-gray-400 hover:text-gray-600"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showSoloNameModal && (
+          <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-4 p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
+              <p className="text-sm uppercase font-black mb-4">Nome do Jogador</p>
+              <input
+                type="text"
+                value={draftSoloName}
+                onChange={(e) => setDraftSoloName(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none mb-6"
+                placeholder="Digite seu nome..."
+                autoFocus
+              />
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setShowSoloNameModal(false)}
+                  className="rounded-xl px-5 py-3 bg-gray-100 text-gray-700 font-black uppercase text-sm"
+                >
+                  Voltar
+                </button>
+                <button
+                  onClick={() => {
+                    if (draftSoloName.trim()) {
+                      setShowSoloNameModal(false);
+                      handleStartGame(true);
+                    }
+                  }}
+                  disabled={!draftSoloName.trim()}
+                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
+                  style={{ backgroundColor: activeTheme.primary }}
+                >
+                  Iniciar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loginModal}
 
         {showTeamNamesModal && (
           <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2705,6 +2949,7 @@ const App: React.FC = () => {
                     value={draftTeam1Name}
                     onChange={(e) => setDraftTeam1Name(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+                    placeholder="Nome da Equipe 1..."
                   />
                 </div>
                 <div>
@@ -2714,6 +2959,7 @@ const App: React.FC = () => {
                     value={draftTeam2Name}
                     onChange={(e) => setDraftTeam2Name(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+                    placeholder="Nome da Equipe 2..."
                   />
                 </div>
               </div>
@@ -2727,20 +2973,103 @@ const App: React.FC = () => {
                 </button>
                 <button
                   onClick={saveTeamNames}
-                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110"
+                  disabled={!draftTeam1Name.trim() || !draftTeam2Name.trim()}
+                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
                   style={{ backgroundColor: activeTheme.primary }}
                 >
-                  Alterar
+                  Confirmar
                 </button>
               </div>
             </div>
           </div>
         )}
 
+        {showRanking && (
+          <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border-4 flex flex-col max-h-[85vh]" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
+              <div className="p-6 md:p-8 border-b border-gray-100">
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="text-xl md:text-2xl font-black uppercase flex items-center gap-3">
+                    <i className="fi fi-rr-trophy text-amber-400" aria-hidden="true" />
+                    Ranking
+                  </h3>
+                  <button
+                    onClick={() => setShowRanking(false)}
+                    className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
+                  >
+                    <i className="fi fi-rr-cross-small text-xl text-gray-500" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 md:p-8 settings-scroll">
+                {rankings.length === 0 ? (
+                  <div className="text-center py-10 opacity-50">
+                    <i className="fi fi-rr-box-open text-5xl mb-4 block" aria-hidden="true" />
+                    <p className="font-black uppercase text-sm">Nenhum recorde ainda</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {rankings.map((entry, idx) => (
+                      <div 
+                        key={`${entry.name}-${idx}`} 
+                        className={`flex items-center gap-4 p-4 rounded-2xl border ${idx === 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}
+                      >
+                        <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                          {idx === 0 ? (
+                            <img src={goldMedal} alt="1º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
+                          ) : idx === 1 ? (
+                            <img src={silverMedal} alt="2º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
+                          ) : idx === 2 ? (
+                            <img src={bronzeMedal} alt="3º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs bg-gray-100 text-gray-400 border border-gray-200">
+                              {idx + 1}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black uppercase text-sm md:text-base truncate">{entry.name}</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">{entry.date}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-black text-lg md:text-xl" style={{ color: activeTheme.primary }}>{entry.score}</p>
+                          <p className="text-[9px] font-black text-gray-400 uppercase">Pontos</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              
+              <div className="p-6 bg-gray-50 rounded-b-[1.7rem] flex justify-center">
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('Tem certeza que deseja apagar TODO o ranking do banco de dados?')) {
+                        try {
+                          const { error } = await supabase.from('showdalicao').delete().neq('id', 0); // Delete all
+                          if (error) throw error;
+                          fetchRankings();
+                        } catch (err) {
+                          console.error('Error clearing rankings:', err);
+                        }
+                      }
+                    }}
+                    className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    Limpar Ranking Global
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {updateButton}
         {settingsButton}
         {updateDialog}
         {appFooter}
+        {loginModal}
       </div>
     );
   }
@@ -2749,31 +3078,55 @@ const App: React.FC = () => {
     const winner = gameState.teams[0].score > gameState.teams[1].score ? gameState.teams[0] : gameState.teams[1];
     const isDraw = gameState.teams[0].score === gameState.teams[1].score;
 
+    const handleFinalize = async () => {
+      if (gameState.isSoloMode) {
+        await saveRankingEntries(gameState.teams);
+      }
+      window.location.reload();
+    };
+
     return (
       <div className="min-h-[100dvh] flex items-center justify-center p-4 md:p-6 overflow-y-auto settings-scroll">
         <div className="w-full max-w-3xl flex items-center justify-center" style={setupScaledStyle}>
           <div className="bg-white p-8 md:p-16 rounded-3xl shadow-2xl text-center w-full border-8" style={{ color: activeTheme.primary, borderColor: activeTheme.primary }}>
-          <h2 className="text-3xl sm:text-5xl md:text-6xl font-black mb-8 md:mb-10 uppercase">Fim de Jogo</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6 mb-8 md:mb-12">
-            <div className={`p-6 rounded-3xl border-4 ${winner === gameState.teams[0] && !isDraw ? '' : 'bg-gray-50 border-gray-100'}`} style={winner === gameState.teams[0] && !isDraw ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}>
-              <p className="text-sm font-black uppercase mb-2">{gameState.teams[0].name}</p>
-              <p className="text-4xl font-black">{gameState.teams[0].score}</p>
+            <h2 className="text-3xl sm:text-5xl md:text-6xl font-black mb-8 md:mb-10 uppercase">Fim de Jogo</h2>
+            
+            <div className={`grid ${gameState.isSoloMode ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-4 md:gap-6 mb-8 md:mb-12 justify-center items-center`}>
+              <div 
+                className={`p-6 rounded-3xl border-4 ${gameState.isSoloMode || (winner === gameState.teams[0] && !isDraw) ? '' : 'bg-gray-50 border-gray-100'} ${gameState.isSoloMode ? 'max-w-xs mx-auto w-full' : ''}`} 
+                style={gameState.isSoloMode || (winner === gameState.teams[0] && !isDraw) ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}
+              >
+                <p className="text-sm font-black uppercase mb-2">{gameState.teams[0].name}</p>
+                <p className="text-4xl font-black">{gameState.teams[0].score}</p>
+              </div>
+              
+              {!gameState.isSoloMode && (
+                <div className={`p-6 rounded-3xl border-4 ${winner === gameState.teams[1] && !isDraw ? '' : 'bg-gray-50 border-gray-100'}`} style={winner === gameState.teams[1] && !isDraw ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}>
+                  <p className="text-sm font-black uppercase mb-2">{gameState.teams[1].name}</p>
+                  <p className="text-4xl font-black">{gameState.teams[1].score}</p>
+                </div>
+              )}
             </div>
-            <div className={`p-6 rounded-3xl border-4 ${winner === gameState.teams[1] && !isDraw ? '' : 'bg-gray-50 border-gray-100'}`} style={winner === gameState.teams[1] && !isDraw ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}>
-              <p className="text-sm font-black uppercase mb-2">{gameState.teams[1].name}</p>
-              <p className="text-4xl font-black">{gameState.teams[1].score}</p>
+
+            <p className="text-2xl sm:text-4xl md:text-5xl font-black mb-8 md:mb-12 uppercase italic" style={{ color: activeTheme.primary }}>
+              {gameState.isSoloMode ? `Parabéns, ${gameState.teams[0].name}!` : (isDraw ? "Empate Técnico!" : `O vencedor é ${winner.name}!`)}
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-10 mt-4">
+              <button
+                onClick={handleFinalize}
+                className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-8 rounded-2xl text-lg md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-lg min-w-[220px] uppercase tracking-wider"
+                style={{ backgroundColor: activeTheme.primary }}
+              >
+                Finalizar
+              </button>
             </div>
-          </div>
-          <p className="text-2xl sm:text-4xl md:text-5xl font-black mb-8 md:mb-12 uppercase italic" style={{ color: activeTheme.primary }}>
-            {isDraw ? "Empate Técnico!" : `Vitória da ${winner.name}!`}
-          </p>
-          <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-10 rounded-2xl text-lg md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-md mb-4 md:mb-6" style={{ backgroundColor: activeTheme.primary }}>NOVA PARTIDA</button>
-          <button onClick={resetToSetup} className="inline-flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 md:py-4 px-10 rounded-2xl text-base md:text-xl transition-all duration-200 ease-out">VOLTAR AO MENU</button>
           </div>
         </div>
         {setupZoomFloatingControl}
         {updateDialog}
         {appFooter}
+        {loginModal}
       </div>
     );
   }
@@ -2795,32 +3148,49 @@ const App: React.FC = () => {
           <div className="sticky top-[6px] z-40 flex flex-wrap justify-between items-center gap-3 mb-3 bg-white/20 p-3 sm:p-4 md:p-5 rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
             <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
             <div className="text-center flex-1 min-w-[140px]">
-              <p className="text-xs font-bold uppercase opacity-80 mb-1">Equipe Atual</p>
-              <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">{currentTeam.name}</p>
+              <p className="text-xs font-bold uppercase opacity-80 mb-1">
+                {gameState.isSoloMode ? gameState.teams[0].name : "Equipe Atual"}
+              </p>
+              <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">
+                {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
+              </p>
             </div>
-            <div className="text-right min-w-[88px]">
-              <p className="text-xs font-bold uppercase opacity-80 mb-1">Questão</p>
-              <p className="text-base sm:text-xl md:text-2xl font-black leading-none">0/0</p>
-            </div>
-          </div>
-
-          <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
-              <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
-                <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[0].name}</p>
-                <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[0].score} pts</p>
-              </div>
-
-              <div className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 backdrop-blur-sm border-0 flex items-center justify-center">
-                <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none opacity-70" aria-hidden="true" />
-              </div>
-
-              <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
-                <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[1].name}</p>
-                <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[1].score} pts</p>
+            <div className="flex items-center gap-4">
+              {gameState.isSoloMode && (
+                <button
+                  onClick={handleTenSecondsTimer}
+                  className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200"
+                  title="Tempo 10s"
+                >
+                  <i className="fi fi-ts-time-forward-ten text-xl" aria-hidden="true" />
+                </button>
+              )}
+              <div className="text-right min-w-[88px]">
+                <p className="text-xs font-bold uppercase opacity-80 mb-1">Questão</p>
+                <p className="text-base sm:text-xl md:text-2xl font-black leading-none">0/0</p>
               </div>
             </div>
           </div>
+
+          {!gameState.isSoloMode && (
+            <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
+                <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
+                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[0].name}</p>
+                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[0].score} pts</p>
+                </div>
+
+                <div className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 backdrop-blur-sm border-0 flex items-center justify-center">
+                  <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none opacity-70" aria-hidden="true" />
+                </div>
+
+                <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
+                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[1].name}</p>
+                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[1].score} pts</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-6 md:p-10 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
             <div className="text-center max-w-3xl mx-auto">
@@ -2838,6 +3208,7 @@ const App: React.FC = () => {
         {questionOptionsPanel}
         {updateDialog}
         {appFooter}
+        {loginModal}
       </div>
     );
   }
@@ -2859,53 +3230,70 @@ const App: React.FC = () => {
       <div className="sticky top-[6px] z-40 flex flex-wrap justify-between items-center gap-3 mb-3 bg-white/20 p-3 sm:p-4 md:p-5 rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
         <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
         <div className="text-center flex-1 min-w-[140px]">
-          <p className="text-xs font-bold uppercase opacity-80 mb-1">Equipe Atual</p>
-          <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">{currentTeam.name}</p>
+          <p className="text-xs font-bold uppercase opacity-80 mb-1">
+            {gameState.isSoloMode ? gameState.teams[0].name : "Equipe Atual"}
+          </p>
+          <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">
+            {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
+          </p>
         </div>
-        <div className="text-right min-w-[88px]">
-          <p className="text-xs font-bold uppercase opacity-80 mb-1">Questão</p>
-          <p className="text-base sm:text-xl md:text-2xl font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
+        <div className="flex items-center gap-4">
+          {gameState.isSoloMode && (
+            <button
+              onClick={handleTenSecondsTimer}
+              className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200"
+              title="Tempo 10s"
+            >
+              <i className="fi fi-ts-time-forward-ten text-xl" aria-hidden="true" />
+            </button>
+          )}
+          <div className="text-right min-w-[88px]">
+            <p className="text-xs font-bold uppercase opacity-80 mb-1">Questão</p>
+            <p className="text-base sm:text-xl md:text-2xl font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
+          </div>
         </div>
       </div>
 
       {/* Scoreboard */}
-      <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
-          {(() => {
-            const team1 = gameState.teams[0];
-            const team2 = gameState.teams[1];
+      {!gameState.isSoloMode && (
+        <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
+            {(() => {
+              const team1 = gameState.teams[0];
+              const team2 = gameState.teams[1];
 
-            return (
-              <>
-                <div
-                  className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
-                  style={0 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
-                >
-                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team1.name}</p>
-                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team1.score} pts</p>
-                </div>
+              return (
+                <>
+                  <div
+                    className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                    style={0 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
+                  >
+                    <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team1.name}</p>
+                    <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team1.score} pts</p>
+                  </div>
 
-                <button
-                  onClick={handleTenSecondsTimer}
-                  className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
-                  aria-label="Iniciar contador de 10 segundos"
-                  title="Tempo 10s"
-                >
-                  <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none" aria-hidden="true" />
-                </button>
+                  <button
+                    onClick={handleTenSecondsTimer}
+                    className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+                    aria-label="Iniciar contador de 10 segundos"
+                    title="Tempo 10s"
+                  >
+                    <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none" aria-hidden="true" />
+                  </button>
 
-                <div
-                  className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
-                  style={1 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
-                >
-                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team2.name}</p>
-                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team2.score} pts</p>
-                </div>
-              </>
-            );
-          })()}
+                  <div
+                    className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                    style={1 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
+                  >
+                    <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team2.name}</p>
+                    <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team2.score} pts</p>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
         </div>
-      </div>
+      )}
 
       {showSettings ? (
         <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-4 sm:p-6 md:p-8 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col" style={{ borderColor: activeTheme.accent }}>
@@ -3377,107 +3765,37 @@ const App: React.FC = () => {
 
       {showCorrectConfetti && (
         <div className="pointer-events-none fixed inset-0 z-[200] overflow-hidden" aria-hidden="true">
-          {Array.from({ length: 24 }).map((_, i) => {
-            const size = 4 + (i % 3) * 2;
-            const dx = 74 + (i % 12) * 22;
-            const dy = -(220 + (i % 9) * 36);
-            const rotation = 100 + i * 22;
-            const duration = 980 + (i % 5) * 150;
+          {Array.from({ length: 150 }).map((_, i) => {
+            const size = 8 + Math.random() * 12;
+            const angle = Math.random() * Math.PI * 2;
+            const velocity = 200 + Math.random() * 600;
+            const x = Math.cos(angle) * velocity;
+            const y = Math.sin(angle) * velocity;
+            const xEnd = x * 1.2;
+            const yEnd = y + 500;
+            const rotation = Math.random() * 360;
+            const duration = 3000 + Math.random() * 3000;
+            const delay = Math.random() * 200;
+            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#ffc0cb', '#800080'];
+            const shapes = ['square', 'circle', 'triangle', 'star', 'diamond', 'ribbon'];
+            const shape = shapes[Math.floor(Math.random() * shapes.length)];
+            const color = colors[Math.floor(Math.random() * colors.length)];
 
             return (
-              <span
-                key={`firework-left-${i}`}
+              <div
+                key={`confetti-${i}`}
+                className={`confetti-piece confetti-piece--bursting shape-${shape}`}
                 style={{
-                  bottom: '-16px',
-                  left: '-16px',
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  backgroundColor: fireworkColors[i % fireworkColors.length],
-                  ['--fw-duration' as any]: `${duration}ms`,
-                  ['--fw-delay' as any]: `${i * 36}ms`,
-                  ['--fw-x' as any]: `${dx}px`,
-                  ['--fw-y' as any]: `${dy}px`,
-                  ['--fw-rot' as any]: `${rotation}deg`
-                }}
-                className={`firework-piece ${showCorrectConfettiBurst ? 'firework-piece--bursting' : ''}`}
-              />
-            );
-          })}
-          {Array.from({ length: 24 }).map((_, i) => {
-            const size = 4 + (i % 3) * 2;
-            const dx = -(74 + (i % 12) * 22);
-            const dy = -(220 + (i % 9) * 36);
-            const rotation = -(100 + i * 22);
-            const duration = 980 + (i % 5) * 150;
-
-            return (
-              <span
-                key={`firework-right-${i}`}
-                style={{
-                  bottom: '-16px',
-                  right: '-16px',
-                  width: `${size}px`,
-                  height: `${size}px`,
-                  backgroundColor: fireworkColors[(i + 3) % fireworkColors.length],
-                  ['--fw-duration' as any]: `${duration}ms`,
-                  ['--fw-delay' as any]: `${i * 36}ms`,
-                  ['--fw-x' as any]: `${dx}px`,
-                  ['--fw-y' as any]: `${dy}px`,
-                  ['--fw-rot' as any]: `${rotation}deg`
-                }}
-                className={`firework-piece ${showCorrectConfettiBurst ? 'firework-piece--bursting' : ''}`}
-              />
-            );
-          })}
-          {Array.from({ length: 78 }).map((_, i) => {
-            const size = 7 + (i % 5) * 2;
-            const dx = 72 + (i % 18) * 20;
-            const dy = -(560 + (i % 22) * 28);
-            const rotation = 120 + i * 18;
-            const duration = 1750 + (i % 9) * 160;
-
-            return (
-              <span
-                key={`confetti-left-${i}`}
-                style={{
-                  bottom: '-12px',
-                  left: '-12px',
-                  width: `${size}px`,
-                  height: `${size * 0.55}px`,
-                  backgroundColor: confettiColors[i % confettiColors.length],
-                  ['--confetti-duration' as any]: `${duration}ms`,
-                  ['--confetti-delay' as any]: `${i * 24}ms`,
-                  ['--confetti-x' as any]: `${dx}px`,
-                  ['--confetti-y' as any]: `${dy}px`,
-                  ['--confetti-rot' as any]: `${rotation}deg`
-                }}
-                className={`confetti-piece confetti-piece-left ${showCorrectConfettiBurst ? 'confetti-piece--bursting' : ''}`}
-              />
-            );
-          })}
-          {Array.from({ length: 78 }).map((_, i) => {
-            const size = 7 + (i % 5) * 2;
-            const dx = -(72 + (i % 18) * 20);
-            const dy = -(560 + (i % 22) * 28);
-            const rotation = -(120 + i * 18);
-            const duration = 1750 + (i % 9) * 160;
-
-            return (
-              <span
-                key={`confetti-right-${i}`}
-                style={{
-                  bottom: '-12px',
-                  right: '-12px',
-                  width: `${size}px`,
-                  height: `${size * 0.55}px`,
-                  backgroundColor: confettiColors[(i + 2) % confettiColors.length],
-                  ['--confetti-duration' as any]: `${duration}ms`,
-                  ['--confetti-delay' as any]: `${i * 24}ms`,
-                  ['--confetti-x' as any]: `${dx}px`,
-                  ['--confetti-y' as any]: `${dy}px`,
-                  ['--confetti-rot' as any]: `${rotation}deg`
-                }}
-                className={`confetti-piece confetti-piece-right ${showCorrectConfettiBurst ? 'confetti-piece--bursting' : ''}`}
+                  '--size': `${size}px`,
+                  '--color': color,
+                  '--x': `${x}px`,
+                  '--y': `${y}px`,
+                  '--x-end': `${xEnd}px`,
+                  '--y-end': `${yEnd}px`,
+                  '--rot': `${rotation}deg`,
+                  '--duration': `${duration}ms`,
+                  animationDelay: `${delay}ms`
+                } as any}
               />
             );
           })}

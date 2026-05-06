@@ -6,6 +6,7 @@ const { autoUpdater } = require('electron-updater');
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const QUESTIONS_STORAGE_FILE = 'questions.generated.ts';
+const QUESTIONS_JSON_FILE = 'questions.generated.json';
 const LOCAL_VERSION_CHECK_INTERVAL_MS = 60 * 1000;
 const GITHUB_RELEASE_TAG = 'ShowdaLição';
 const GITHUB_RELEASES_URL = `https://github.com/RailsonMonteiro/showdalicao/releases/tag/${encodeURIComponent(GITHUB_RELEASE_TAG)}`;
@@ -392,11 +393,13 @@ ipcMain.handle('questions:clear', async () => {
 
 ipcMain.handle('questions:save', async (_event, payload) => {
   const questionsPath = getQuestionsFilePath();
+  const jsonPath = path.join(app.getPath('userData'), QUESTIONS_JSON_FILE);
   const content = buildQuestionsFileContent(payload);
 
   try {
     await ensureQuestionsStorageDir();
     await fs.writeFile(questionsPath, content, 'utf8');
+    await fs.writeFile(jsonPath, JSON.stringify(payload, null, 2), 'utf8');
     return {
       ok: true,
       count: Array.isArray(payload) ? payload.length : 0,
@@ -404,6 +407,17 @@ ipcMain.handle('questions:save', async (_event, payload) => {
     };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Falha ao salvar arquivo de perguntas' };
+  }
+});
+
+ipcMain.handle('questions:load', async () => {
+  const jsonPath = path.join(app.getPath('userData'), QUESTIONS_JSON_FILE);
+  try {
+    const content = await fs.readFile(jsonPath, 'utf8');
+    const questions = JSON.parse(content);
+    return { ok: true, questions };
+  } catch (error) {
+    return { ok: false, error: 'Nenhuma pergunta personalizada encontrada.' };
   }
 });
 

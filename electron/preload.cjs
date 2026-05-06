@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   clearQuestionsFile: () => ipcRenderer.invoke('questions:clear'),
   saveQuestionsFile: (questions) => ipcRenderer.invoke('questions:save', questions),
+  loadQuestionsFile: () => ipcRenderer.invoke('questions:load'),
   getUpdaterState: () => ipcRenderer.invoke('updater:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadAndInstallUpdate: () => ipcRenderer.invoke('updater:download-install'),

@@ -41,4 +41,10 @@ export interface GameState {
   lifelineResult: any | null;
   hiddenOptions: QuestionOptionKey[];
   shuffledQuestions: Question[];
+  isSoloMode: boolean;
+}
+export interface RankingEntry {
+  name: string;
+  score: number;
+  date: string;
 }
