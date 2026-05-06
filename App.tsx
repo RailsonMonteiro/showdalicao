@@ -281,6 +281,15 @@ const App: React.FC = () => {
     ? (window as Window & { electronAPI?: ElectronQuestionsApi }).electronAPI
     : undefined);
 
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [showSettings, setShowSettings] = useState(false);
   const [isFullscreenMode, setIsFullscreenMode] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -1765,13 +1774,15 @@ const App: React.FC = () => {
     handleStartGame();
   };
 
+
+
   const setupScaledStyle: React.CSSProperties = {
-    transform: `scale(${setupZoomLevel / 100})`,
+    transform: isMobile ? 'none' : `scale(${setupZoomLevel / 100})`,
     transformOrigin: 'center center'
   };
 
   const setupFixedScaledStyle: React.CSSProperties = {
-    transform: 'scale(0.9)',
+    transform: isMobile ? 'none' : 'scale(0.9)',
     transformOrigin: 'center center'
   };
 
@@ -2235,9 +2246,9 @@ const App: React.FC = () => {
     };
 
     return (
-      <div className="min-h-[100dvh] h-[100dvh] flex items-center justify-center p-3 md:p-8 overflow-y-auto settings-scroll">
-        <div className="w-[98vw] h-[96dvh] md:w-[95vw] md:h-[95dvh] max-w-none flex items-center justify-center" style={settingsZoomStyle}>
-          <div className="w-full h-full bg-white rounded-[2rem] p-5 md:p-8 shadow-2xl border-4 flex flex-col" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
+      <div className="min-h-[100dvh] h-[100dvh] flex items-center justify-center p-0 md:p-8 overflow-y-auto settings-scroll">
+        <div className="w-full h-full md:w-[95vw] md:h-[95dvh] max-w-none flex items-center justify-center" style={settingsZoomStyle}>
+          <div className="w-full h-full bg-white md:rounded-[2rem] p-4 md:p-8 shadow-2xl md:border-4 flex flex-col" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: 'clamp(12pt, 1.5vw, 15pt)' }}>
             <div className="flex items-center justify-between gap-4 mb-6 md:mb-8">
               <h2 className="text-xl md:text-2xl font-black uppercase leading-none flex items-center gap-2 md:gap-2">
                 <i className="fi fi-rr-menu-burger icon-font-black text-[20px] md:text-[24px] leading-none" aria-hidden="true" />
@@ -2262,9 +2273,9 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-5 md:gap-6 flex-1 min-h-0">
-              <aside className="bg-gray-50 rounded-2xl p-4 md:p-5">
-                <p className="text-xs uppercase font-black text-gray-500 mb-4 tracking-widest">Menu</p>
+            <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 md:gap-6 flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
+              <aside className="bg-gray-50 rounded-2xl p-4 md:p-5 flex flex-row md:flex-col gap-2 md:gap-2 overflow-x-auto md:overflow-x-visible shrink-0">
+                <p className="hidden md:block text-xs uppercase font-black text-gray-500 mb-4 tracking-widest">Menu</p>
                 <div className="space-y-2">
                   {[
                     { id: 'interface', label: 'Interface' },
@@ -2276,7 +2287,7 @@ const App: React.FC = () => {
                       <button
                         key={item.id}
                         onClick={() => setSettingsSection(item.id as 'interface' | 'perguntas' | 'fontes')}
-                        className={`w-full text-left px-4 py-2.5 md:py-3 rounded-xl font-black uppercase text-xs md:text-sm transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
+                        className={`whitespace-nowrap md:w-full text-left px-4 py-2.5 md:py-3 rounded-xl font-black uppercase text-[10px] md:text-sm transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
                         style={isActive
                           ? {
                               color: activeTheme.primary,
@@ -2295,17 +2306,17 @@ const App: React.FC = () => {
                   })}
                 </div>
 
-                <div className="mt-auto pt-6 border-t border-gray-200/50 mt-8">
+                <div className="md:mt-auto md:pt-6 md:border-t border-gray-200/50 mt-0">
                   <button
                     onClick={isAdmin ? handleLogout : () => setShowLoginModal(true)}
-                    className={`w-full text-left px-4 py-3 rounded-xl font-black uppercase text-[10px] md:text-xs transition-all border flex items-center gap-3 ${
+                    className={`whitespace-nowrap md:w-full text-left px-4 py-3 rounded-xl font-black uppercase text-[10px] md:text-xs transition-all border flex items-center gap-2 md:gap-3 ${
                       isAdmin 
                         ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
                         : 'bg-white/60 text-gray-500 border-gray-200 hover:bg-white'
                     }`}
                   >
-                    <i className={`fi ${isAdmin ? 'fi-rr-sign-out-alt' : 'fi-rr-user-lock'} text-base`} aria-hidden="true" />
-                    {isAdmin ? 'Sair do Admin' : 'Acesso Restrito'}
+                    <i className={`fi ${isAdmin ? 'fi-rr-sign-out-alt' : 'fi-rr-user-lock'} text-sm md:text-base`} aria-hidden="true" />
+                    <span className="hidden xs:inline">{isAdmin ? 'Sair Admin' : 'Admin'}</span>
                   </button>
                 </div>
               </aside>
@@ -2688,8 +2699,8 @@ const App: React.FC = () => {
           </div>
         </div>
         {showQuestionBuilder && (
-          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 md:p-6 bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-6xl h-[92vh] bg-white rounded-[2rem] shadow-2xl border-4 flex flex-col overflow-hidden" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 md:p-6 bg-black/60 backdrop-blur-sm">
+            <div className="w-full h-full md:max-w-6xl md:h-[92vh] bg-white md:rounded-[2rem] shadow-2xl md:border-4 flex flex-col overflow-hidden" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: 'clamp(12pt, 1.5vw, 15pt)' }}>
               <div className="flex items-center justify-between gap-4 px-5 py-4 md:px-8 md:py-5 border-b border-gray-100 bg-gray-50">
                 <div>
                   <p className="text-xs uppercase font-black tracking-[0.3em] text-gray-500">Gerar perguntas</p>
@@ -2846,7 +2857,7 @@ const App: React.FC = () => {
           <div className="relative z-10 w-full max-w-md space-y-4 flex flex-col items-center">
             <button
               onClick={() => setShowModeSelection(true)}
-              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-4 px-10 rounded-2xl text-2xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"
+              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl text-xl md:text-2xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"
             >
               Quiz ES
             </button>
@@ -3088,8 +3099,8 @@ const App: React.FC = () => {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center p-4 md:p-6 overflow-y-auto settings-scroll">
         <div className="w-full max-w-3xl flex items-center justify-center" style={setupScaledStyle}>
-          <div className="bg-white p-8 md:p-16 rounded-3xl shadow-2xl text-center w-full border-8" style={{ color: activeTheme.primary, borderColor: activeTheme.primary }}>
-            <h2 className="text-3xl sm:text-5xl md:text-6xl font-black mb-8 md:mb-10 uppercase">Fim de Jogo</h2>
+          <div className="bg-white p-6 md:p-16 rounded-[2rem] shadow-2xl text-center w-full border-4 md:border-8" style={{ color: activeTheme.primary, borderColor: activeTheme.primary }}>
+            <h2 className="text-2xl sm:text-5xl md:text-6xl font-black mb-6 md:mb-10 uppercase">Fim de Jogo</h2>
             
             <div className={`grid ${gameState.isSoloMode ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-4 md:gap-6 mb-8 md:mb-12 justify-center items-center`}>
               <div 
@@ -3115,7 +3126,7 @@ const App: React.FC = () => {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-10 mt-4">
               <button
                 onClick={handleFinalize}
-                className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-8 rounded-2xl text-lg md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-lg min-w-[220px] uppercase tracking-wider"
+                className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-6 md:px-8 rounded-2xl text-base md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-lg w-full sm:min-w-[220px] uppercase tracking-wider"
                 style={{ backgroundColor: activeTheme.primary }}
               >
                 Finalizar
@@ -3224,39 +3235,39 @@ const App: React.FC = () => {
     >
       <div
         className={isFullscreenMode ? 'w-full max-w-none flex flex-col items-stretch' : 'w-full max-w-7xl mx-auto flex flex-col items-stretch'}
-        style={{ transform: `scale(${gameZoomLevel / 100})`, transformOrigin: 'center top' }}
+        style={{ transform: isMobile ? 'none' : `scale(${gameZoomLevel / 100})`, transformOrigin: 'center top' }}
       >
       {/* Header Info */}
-      <div className="sticky top-[6px] z-40 flex flex-wrap justify-between items-center gap-3 mb-3 bg-white/20 p-3 sm:p-4 md:p-5 rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
-        <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
-        <div className="text-center flex-1 min-w-[140px]">
-          <p className="text-xs font-bold uppercase opacity-80 mb-1">
+      <div className="sticky top-[6px] z-40 flex flex-nowrap justify-between items-center gap-2 mb-3 bg-white/20 p-2 sm:p-4 md:p-5 rounded-2xl md:rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
+        <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-3 sm:px-5 py-2 sm:py-3 rounded-xl md:rounded-2xl text-[10px] sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
+        <div className="text-center flex-1 min-w-0">
+          <p className="text-[9px] sm:text-xs font-bold uppercase opacity-80 mb-0.5">
             {gameState.isSoloMode ? gameState.teams[0].name : "Equipe Atual"}
           </p>
-          <p className="text-lg sm:text-2xl md:text-3xl font-black leading-none italic truncate">
+          <p className="text-sm sm:text-2xl md:text-3xl font-black leading-none italic truncate">
             {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
           {gameState.isSoloMode && (
             <button
               onClick={handleTenSecondsTimer}
-              className="w-10 h-10 md:w-11 md:h-11 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200"
+              className="w-8 h-8 md:w-11 md:h-11 rounded-lg md:rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200"
               title="Tempo 10s"
             >
-              <i className="fi fi-ts-time-forward-ten text-xl" aria-hidden="true" />
+              <i className="fi fi-ts-time-forward-ten text-sm md:text-xl" aria-hidden="true" />
             </button>
           )}
-          <div className="text-right min-w-[88px]">
-            <p className="text-xs font-bold uppercase opacity-80 mb-1">Questão</p>
-            <p className="text-base sm:text-xl md:text-2xl font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
+          <div className="text-right shrink-0">
+            <p className="text-[9px] sm:text-xs font-bold uppercase opacity-80 mb-0.5">Questão</p>
+            <p className="text-sm sm:text-xl md:text-2xl font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
           </div>
         </div>
       </div>
 
       {/* Scoreboard */}
       {!gameState.isSoloMode && (
-        <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
+        <div className="sticky top-[60px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
           <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
             {(() => {
               const team1 = gameState.teams[0];
@@ -3265,28 +3276,28 @@ const App: React.FC = () => {
               return (
                 <>
                   <div
-                    className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                    className={`min-w-0 h-[48px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
                     style={0 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
                   >
-                    <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team1.name}</p>
-                    <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team1.score} pts</p>
+                    <p className="text-[10px] sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-0.5 md:mb-1">{team1.name}</p>
+                    <p className="text-xs sm:text-base md:text-lg font-black leading-none">{team1.score} pts</p>
                   </div>
 
                   <button
                     onClick={handleTenSecondsTimer}
-                    className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+                    className="h-[48px] sm:h-[72px] md:h-[88px] min-w-[48px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
                     aria-label="Iniciar contador de 10 segundos"
                     title="Tempo 10s"
                   >
-                    <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none" aria-hidden="true" />
+                    <i className="fi fi-ts-time-forward-ten icon-font-black text-[24px] md:text-[38px] leading-none" aria-hidden="true" />
                   </button>
 
                   <div
-                    className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
+                    className={`min-w-0 h-[48px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
                     style={1 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
                   >
-                    <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{team2.name}</p>
-                    <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team2.score} pts</p>
+                    <p className="text-[10px] sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-0.5 md:mb-1">{team2.name}</p>
+                    <p className="text-xs sm:text-base md:text-lg font-black leading-none">{team2.score} pts</p>
                   </div>
                 </>
               );
@@ -3613,8 +3624,8 @@ const App: React.FC = () => {
       ) : (
         <>
           {/* Main Question Area */}
-          <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-4 sm:p-6 md:p-10 xl:p-14 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
-            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none text-[12rem]">L</div>
+          <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-5 sm:p-6 md:p-10 xl:p-14 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
+            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none text-[6rem] md:text-[12rem]">L</div>
             <div className="relative z-10 w-full">
               <h3
                 className="text-3xl md:text-5xl lg:text-6xl font-black text-gray-800 leading-[1.2] mb-6 sm:mb-8 md:mb-10 text-center md:text-left"
@@ -3662,13 +3673,13 @@ const App: React.FC = () => {
             <button
               disabled={!selectedOption}
               onClick={handleConfirm}
-              className="inline-flex items-center justify-center bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-green-600 disabled:border-gray-400 active:scale-95 uppercase tracking-wide"
+              className="inline-flex flex-1 min-w-[140px] items-center justify-center bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl md:rounded-3xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-green-600 disabled:border-gray-400 active:scale-95 uppercase tracking-wide"
             >
               Confirmar
             </button>
             <button
               onClick={handleSkip}
-              className="inline-flex items-center justify-center bg-gray-500 hover:bg-gray-600 text-white font-black py-3 md:py-4 px-8 md:px-10 rounded-3xl text-base md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-gray-600 active:scale-95 uppercase tracking-wide"
+              className="inline-flex flex-1 min-w-[140px] items-center justify-center bg-gray-500 hover:bg-gray-600 text-white font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl md:rounded-3xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-gray-600 active:scale-95 uppercase tracking-wide"
             >
               Passar
             </button>
@@ -3726,7 +3737,7 @@ const App: React.FC = () => {
       {/* Feedback Overlay */}
       {gameState.showExplanation && (
         <div
-          className="fixed inset-0 flex items-center justify-center p-4 md:p-6 z-[120]"
+          className="fixed inset-0 flex items-center justify-center p-2 sm:p-4 md:p-6 z-[120]"
           style={{
             background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.gradientEnd} 100%)`
           }}
@@ -3803,8 +3814,8 @@ const App: React.FC = () => {
       )}
 
       {showSettings && showQuestionBuilder && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-6 bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-6xl h-[92vh] bg-white rounded-[2rem] shadow-2xl border-4 flex flex-col overflow-hidden" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 md:p-6 bg-black/60 backdrop-blur-sm">
+          <div className="w-full h-full md:max-w-6xl md:h-[92vh] bg-white md:rounded-[2rem] shadow-2xl md:border-4 flex flex-col overflow-hidden" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: 'clamp(12pt, 1.5vw, 15pt)' }}>
             <div className="flex items-center justify-between gap-4 px-5 py-4 md:px-8 md:py-5 border-b border-gray-100 bg-gray-50">
               <div>
                 <p className="text-xs uppercase font-black tracking-[0.3em] text-gray-500">Gerar perguntas</p>
