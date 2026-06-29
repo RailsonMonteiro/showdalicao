@@ -1859,7 +1859,7 @@ const App: React.FC = () => {
   const saveRankingEntries = async (teams: Team[], forceAll = false) => {
     const now = new Date().toISOString();
     const entries = teams
-      .filter(team => forceAll ? team.name.trim() : team.score > 0)
+      .filter(team => team.name !== 'CPU' && (forceAll ? team.name.trim() : team.score > 0))
       .map(team => ({
         name: team.name,
         score: team.score,
@@ -2438,7 +2438,7 @@ const App: React.FC = () => {
 
   const appFooter = (
     <div
-      className="fixed bottom-2 left-1/2 -translate-x-1/2 z-[60] px-2 py-0.5 text-black text-[9px] md:text-[10px] font-normal text-center pointer-events-none whitespace-nowrap"
+      className="fixed bottom-2 left-1/2 -translate-x-1/2 z-[60] px-2 py-0.5 text-white/70 text-[9px] md:text-[10px] font-normal text-center pointer-events-none whitespace-nowrap"
       style={{ fontFamily: 'Arial, sans-serif' }}
     >
       © 2026 | Desenvolvedor - By IASD Rio do SUL - SC | versão {appVersion}
@@ -3044,7 +3044,7 @@ const App: React.FC = () => {
           return (
           <div
             className="fixed inset-0 z-[95] flex flex-col"
-            style={{ fontFamily: 'Arial Local, Arial, sans-serif', background: '#07111f' }}
+            style={{ fontFamily: 'Arial Local, Arial, sans-serif', background: `linear-gradient(160deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 50%, ${mixHex(activeTheme.primary,'#001a2e',0.3)} 100%)` }}
           >
             <div
               className="relative flex-shrink-0 flex items-center justify-between px-5 sm:px-8 py-4"
@@ -3083,7 +3083,7 @@ const App: React.FC = () => {
               <>
                 <div
                   className="flex-shrink-0 relative overflow-hidden flex flex-col items-center justify-end pb-0"
-                  style={{ minHeight: 'clamp(200px, 38vh, 380px)', background: 'linear-gradient(180deg, #0d1f3c 0%, #07111f 100%)' }}
+                  style={{ minHeight: 'clamp(200px, 38vh, 380px)', background: 'rgba(0,0,0,0.15)' }}
                 >
                   {[
                     { top:'12%', left:'8%',  s:3, o:0.5 },
@@ -3125,7 +3125,7 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto settings-scroll" style={{ background: '#0b1828' }}>
+                <div className="flex-1 overflow-y-auto settings-scroll" style={{ background: 'rgba(0,0,0,0.2)' }}>
                   {rest.length === 0 ? (
                     <div className="flex items-center justify-center h-full py-10 text-center px-6">
                       <p className="text-sm text-white/20 font-semibold uppercase tracking-wider">Apenas 3 jogadores no ranking</p>
@@ -3166,7 +3166,7 @@ const App: React.FC = () => {
             )}
 
             {isAdmin && (
-              <div className="flex-shrink-0 flex items-center justify-end px-5 sm:px-8 py-3" style={{ background: '#07111f', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex-shrink-0 flex items-center justify-end px-5 sm:px-8 py-3" style={{ background: 'rgba(0,0,0,0.25)', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                 <button
                   onClick={async () => {
                     if (window.confirm('Tem certeza que deseja apagar TODO o ranking?')) {
@@ -3314,42 +3314,42 @@ const App: React.FC = () => {
 
           {/* Dropdown mobile */}
           {showDashboardMobileMenu && (
-            <div className="sm:hidden absolute top-full left-0 right-0 z-[100] shadow-xl border-t border-white/10 py-1" style={{ background: `linear-gradient(180deg, ${activeTheme.primary} 0%, ${mixHex(activeTheme.primary,'#001122',0.25)} 100%)` }}>
+            <div className="sm:hidden absolute top-full left-0 right-0 z-[100] shadow-xl border-t border-white/10 py-2" style={{ background: `linear-gradient(180deg, ${activeTheme.primary} 0%, ${mixHex(activeTheme.primary,'#001122',0.25)} 100%)` }}>
               <button
                 onClick={() => { setShowDashboard(false); setShowDashboardMobileMenu(false); }}
-                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                className="flex items-center gap-4 w-full px-6 py-4 text-base text-white/70 hover:text-white hover:bg-white/10 transition-colors active:bg-white/15"
               >
-                <i className="fi fi-rr-home text-base leading-none w-5" aria-hidden="true" />
+                <i className="fi fi-rr-home text-xl leading-none w-6" aria-hidden="true" />
                 Início
               </button>
               <button
                 onClick={() => { setShowRanking(true); setShowDashboardMobileMenu(false); }}
-                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                className="flex items-center gap-4 w-full px-6 py-4 text-base text-white/70 hover:text-white hover:bg-white/10 transition-colors active:bg-white/15"
               >
-                <i className="fi fi-rr-trophy text-base leading-none w-5" aria-hidden="true" />
+                <i className="fi fi-rr-trophy text-xl leading-none w-6" aria-hidden="true" />
                 Ranking
               </button>
-              <div className="h-px mx-5 my-1 bg-white/10" />
+              <div className="h-px mx-6 my-1 bg-white/10" />
               <button
                 onClick={() => { setShowSettings(true); setShowDashboardMobileMenu(false); }}
-                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                className="flex items-center gap-4 w-full px-6 py-4 text-base text-white/70 hover:text-white hover:bg-white/10 transition-colors active:bg-white/15"
               >
-                <i className="fi fi-rr-settings text-base leading-none w-5" aria-hidden="true" />
+                <i className="fi fi-rr-settings text-xl leading-none w-6" aria-hidden="true" />
                 Configurações
               </button>
               <button
                 onClick={() => { setShowUserPanel(true); setShowDashboardMobileMenu(false); }}
-                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+                className="flex items-center gap-4 w-full px-6 py-4 text-base text-white/70 hover:text-white hover:bg-white/10 transition-colors active:bg-white/15"
               >
-                <i className="fi fi-rr-user text-base leading-none w-5" aria-hidden="true" />
+                <i className="fi fi-rr-user text-xl leading-none w-6" aria-hidden="true" />
                 Meu Perfil
               </button>
-              <div className="h-px mx-5 my-1 bg-white/10" />
+              <div className="h-px mx-6 my-1 bg-white/10" />
               <button
                 onClick={async () => { await handleLogout(); setShowDashboard(false); setShowDashboardMobileMenu(false); }}
-                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/40 hover:text-red-400 hover:bg-white/10 transition-colors"
+                className="flex items-center gap-4 w-full px-6 py-4 text-base text-white/40 hover:text-red-400 hover:bg-white/10 transition-colors active:bg-white/15"
               >
-                <i className="fi fi-rr-sign-out-alt text-base leading-none w-5" aria-hidden="true" />
+                <i className="fi fi-rr-sign-out-alt text-xl leading-none w-6" aria-hidden="true" />
                 Sair
               </button>
             </div>
@@ -3383,11 +3383,11 @@ const App: React.FC = () => {
 
         {/* ── Barra de seleção em massa ── */}
         {!dbLoading && filtered.length > 0 && (
-          <div className="flex items-center gap-3 px-4 sm:px-8 py-2 border-b border-gray-100 bg-gray-50/60">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
+          <div className="flex items-center gap-3 px-4 sm:px-8 py-2.5 sm:py-2 border-b border-gray-100 bg-gray-50/60">
+            <label className="flex items-center gap-3 sm:gap-2 cursor-pointer select-none min-h-[44px] sm:min-h-0">
               <input
                 type="checkbox"
-                className="w-4 h-4 rounded accent-red-500 cursor-pointer"
+                className="w-5 h-5 sm:w-4 sm:h-4 rounded accent-red-500 cursor-pointer"
                 checked={selectedQIds.size === filtered.length}
                 ref={el => { if (el) el.indeterminate = selectedQIds.size > 0 && selectedQIds.size < filtered.length; }}
                 onChange={e => {
@@ -3395,16 +3395,16 @@ const App: React.FC = () => {
                   else setSelectedQIds(new Set());
                 }}
               />
-              <span className="text-xs text-gray-500 font-normal">
+              <span className="text-sm sm:text-xs text-gray-500 font-normal">
                 {selectedQIds.size > 0 ? `${selectedQIds.size} selecionada${selectedQIds.size !== 1 ? 's' : ''}` : 'Selecionar todas'}
               </span>
             </label>
             {selectedQIds.size > 0 && (
               <button
                 onClick={() => setShowBulkDeleteConfirm(true)}
-                className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors text-xs font-normal active:scale-95"
+                className="ml-auto flex items-center gap-2 px-4 sm:px-3 py-2.5 sm:py-1.5 rounded-xl sm:rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors text-sm sm:text-xs font-normal active:scale-95 min-h-[44px] sm:min-h-0"
               >
-                <i className="fi fi-rr-trash text-sm leading-none" aria-hidden="true" />
+                <i className="fi fi-rr-trash text-base sm:text-sm leading-none" aria-hidden="true" />
                 Excluir {selectedQIds.size}
               </button>
             )}
@@ -3440,7 +3440,7 @@ const App: React.FC = () => {
                         {/* Checkbox */}
                         <input
                           type="checkbox"
-                          className="mt-1 w-4 h-4 shrink-0 rounded accent-red-500 cursor-pointer"
+                          className="mt-1 w-5 h-5 sm:w-4 sm:h-4 shrink-0 rounded accent-red-500 cursor-pointer"
                           checked={isSelected}
                           onChange={e => {
                             setSelectedQIds(prev => {
@@ -3483,17 +3483,17 @@ const App: React.FC = () => {
                             });
                             setShowQModal(true);
                           }}
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-500 hover:bg-blue-50 transition-colors duration-150"
+                          className="w-11 h-11 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-blue-500 hover:bg-blue-50 transition-colors duration-150"
                           title="Editar"
                         >
-                          <i className="fi fi-rr-edit text-sm" aria-hidden="true" />
+                          <i className="fi fi-rr-edit text-base sm:text-sm" aria-hidden="true" />
                         </button>
                         <button
                           onClick={() => setQDeleteId(q.id)}
-                          className="w-10 h-10 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-50 transition-colors duration-150"
+                          className="w-11 h-11 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-50 transition-colors duration-150"
                           title="Excluir"
                         >
-                          <i className="fi fi-rr-trash text-sm" aria-hidden="true" />
+                          <i className="fi fi-rr-trash text-base sm:text-sm" aria-hidden="true" />
                         </button>
                       </div>
                     </div>
@@ -3625,13 +3625,13 @@ const App: React.FC = () => {
         {showBulkDeleteConfirm && (
           <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
             <div className="bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 sm:p-7 max-w-sm w-full text-center">
-              <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
-                <i className="fi fi-rr-trash text-2xl text-red-400" aria-hidden="true" />
+              <div className="w-16 h-16 sm:w-14 sm:h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+                <i className="fi fi-rr-trash text-3xl sm:text-2xl text-red-400" aria-hidden="true" />
               </div>
-              <h3 className="font-normal text-lg text-gray-800 mb-2">Excluir {selectedQIds.size} pergunta{selectedQIds.size !== 1 ? 's' : ''}?</h3>
-              <p className="text-sm text-gray-500 mb-6">Esta ação não pode ser desfeita.</p>
+              <h3 className="font-normal text-xl sm:text-lg text-gray-800 mb-2">Excluir {selectedQIds.size} pergunta{selectedQIds.size !== 1 ? 's' : ''}?</h3>
+              <p className="text-base sm:text-sm text-gray-500 mb-6">Esta ação não pode ser desfeita.</p>
               <div className="flex gap-3">
-                <button onClick={() => setShowBulkDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-600 font-normal text-sm">Cancelar</button>
+                <button onClick={() => setShowBulkDeleteConfirm(false)} className="flex-1 py-4 sm:py-3 rounded-2xl bg-gray-100 text-gray-600 font-normal text-base sm:text-sm">Cancelar</button>
                 <button
                   onClick={async () => {
                     const ids = Array.from(selectedQIds);
@@ -3642,7 +3642,7 @@ const App: React.FC = () => {
                     setShowBulkDeleteConfirm(false);
                     fetchDbQuestions(uid);
                   }}
-                  className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-normal text-sm shadow-lg"
+                  className="flex-1 py-4 sm:py-3 rounded-2xl bg-red-500 text-white font-normal text-base sm:text-sm shadow-lg"
                 >
                   Excluir
                 </button>
@@ -3653,61 +3653,65 @@ const App: React.FC = () => {
 
         {/* ── Modal compartilhar jogo ── */}
         {showShareModal && (
-          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-            <div className="bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 sm:p-7 max-w-sm w-full">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
-                    <i className="fi fi-rr-share text-blue-500 text-base leading-none" aria-hidden="true" />
+          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm">
+
+              <div className="px-6 pt-6 pb-7">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 sm:w-10 sm:h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
+                      <i className="fi fi-rr-share text-blue-500 text-xl sm:text-base leading-none" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg sm:text-base text-gray-800 leading-tight">Compartilhar Jogo</h3>
+                      <p className="text-sm sm:text-xs text-gray-400 mt-0.5">Compartilhe com seus alunos</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-normal text-base text-gray-800 leading-tight">Compartilhar Jogo</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Compartilhe com seus alunos</p>
-                  </div>
+                  <button onClick={() => setShowShareModal(false)} className="w-10 h-10 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors active:scale-90 rounded-xl">
+                    <i className="fi fi-rr-cross text-base leading-none" aria-hidden="true" />
+                  </button>
                 </div>
-                <button onClick={() => setShowShareModal(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors">
-                  <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
-                </button>
-              </div>
 
-              {/* Link */}
-              <div className="flex items-center gap-2 bg-gray-50 rounded-2xl px-4 py-3 mb-4 border border-gray-200">
-                <span className="flex-1 text-xs text-gray-600 break-all leading-relaxed font-mono">{shareUrl}</span>
-              </div>
+                {/* Link */}
+                <div className="bg-gray-50 rounded-2xl px-4 py-3.5 mb-5 border border-gray-200">
+                  <p className="text-[11px] text-gray-400 uppercase font-semibold mb-1 tracking-wide">Link do jogo</p>
+                  <span className="text-xs text-gray-600 break-all leading-relaxed font-mono">{shareUrl}</span>
+                </div>
 
-              {/* Botões */}
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(shareUrl).then(() => {
-                      alert('Link copiado!');
-                    }).catch(() => {
-                      // fallback para Electron
-                      const el = document.createElement('textarea');
-                      el.value = shareUrl;
-                      document.body.appendChild(el);
-                      el.select();
-                      document.execCommand('copy');
-                      document.body.removeChild(el);
-                      alert('Link copiado!');
-                    });
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-gray-100 text-gray-700 font-normal text-sm hover:bg-gray-200 transition-colors active:scale-95"
-                >
-                  <i className="fi fi-rr-copy-alt leading-none" aria-hidden="true" />
-                  Copiar link
-                </button>
-                <button
-                  onClick={() => {
-                    const waText = encodeURIComponent(`🎯 Jogue o Show da Lição!\n\nResponda perguntas bíblicas e veja sua pontuação no ranking.\n\n👉 ${shareUrl}`);
-                    window.open(`https://wa.me/?text=${waText}`, '_blank');
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-normal text-sm active:scale-95 shadow-lg"
-                  style={{ background: '#25D366' }}
-                >
-                  <i className="fi fi-brands-whatsapp leading-none" aria-hidden="true" />
-                  Compartilhar no WhatsApp
-                </button>
+                {/* Botões */}
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareUrl).then(() => {
+                        alert('Link copiado!');
+                      }).catch(() => {
+                        const el = document.createElement('textarea');
+                        el.value = shareUrl;
+                        document.body.appendChild(el);
+                        el.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(el);
+                        alert('Link copiado!');
+                      });
+                    }}
+                    className="w-full flex items-center justify-center gap-2.5 py-4 sm:py-3 rounded-2xl bg-gray-100 text-gray-700 font-semibold text-base sm:text-sm hover:bg-gray-200 transition-colors active:scale-95"
+                  >
+                    <i className="fi fi-rr-copy-alt text-lg sm:text-base leading-none" aria-hidden="true" />
+                    Copiar link
+                  </button>
+                  <button
+                    onClick={() => {
+                      const waText = encodeURIComponent(`🎯 Jogue o Show da Lição!\n\nResponda perguntas bíblicas e veja sua pontuação no ranking.\n\n👉 ${shareUrl}`);
+                      window.open(`https://wa.me/?text=${waText}`, '_blank');
+                    }}
+                    className="w-full flex items-center justify-center gap-2.5 py-4 sm:py-3 rounded-2xl text-white font-semibold text-base sm:text-sm active:scale-95 shadow-lg"
+                    style={{ background: '#25D366' }}
+                  >
+                    <i className="fi fi-brands-whatsapp text-xl sm:text-base leading-none" aria-hidden="true" />
+                    Compartilhar no WhatsApp
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4317,54 +4321,57 @@ const App: React.FC = () => {
         {loginModal}
 
         {showTeamNamesModal && (
-          <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
-            <div className="w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl border-t-4 sm:border-4 p-5 sm:p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
-              <p className="text-sm uppercase font-black mb-4">Alterar Nome de Equipes</p>
+          <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl" style={{ borderTop: `4px solid ${activeTheme.accent}` }}>
 
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-xs uppercase font-black text-gray-600 mb-2">Equipe 1</label>
-                  <input
-                    type="text"
-                    value={draftTeam1Name}
-                    onChange={(e) => setDraftTeam1Name(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
-                    placeholder="Nome da Equipe 1..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs uppercase font-black text-gray-600 mb-2">Equipe 2</label>
-                  <input
-                    type="text"
-                    value={draftTeam2Name}
-                    onChange={(e) => setDraftTeam2Name(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
-                    placeholder="Nome da Equipe 2..."
-                  />
-                </div>
-              </div>
+              <div className="px-6 pt-6 pb-7">
+                <p className="text-base sm:text-sm uppercase font-black mb-5 sm:mb-4" style={{ color: activeTheme.primary }}>Alterar Nome de Equipes</p>
 
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowTeamNamesModal(false);
-                    if (returnToDashboard.current) {
-                      returnToDashboard.current = false;
-                      setShowDashboard(true);
-                    }
-                  }}
-                  className="rounded-xl px-5 py-3 bg-gray-100 text-gray-700 font-black uppercase text-sm"
-                >
-                  Fechar
-                </button>
-                <button
-                  onClick={saveTeamNames}
-                  disabled={!draftTeam1Name.trim() || !draftTeam2Name.trim()}
-                  className="rounded-xl px-5 py-3 text-white font-black uppercase text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
-                  style={{ backgroundColor: activeTheme.primary }}
-                >
-                  Confirmar
-                </button>
+                <div className="space-y-5 sm:space-y-4 mb-7 sm:mb-6">
+                  <div>
+                    <label className="block text-xs uppercase font-black text-gray-500 mb-2">Equipe 1</label>
+                    <input
+                      type="text"
+                      value={draftTeam1Name}
+                      onChange={(e) => setDraftTeam1Name(e.target.value)}
+                      className="w-full rounded-2xl sm:rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 sm:py-3 text-base font-semibold text-gray-800 outline-none focus:border-blue-300 transition-colors"
+                      placeholder="Nome da Equipe 1..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs uppercase font-black text-gray-500 mb-2">Equipe 2</label>
+                    <input
+                      type="text"
+                      value={draftTeam2Name}
+                      onChange={(e) => setDraftTeam2Name(e.target.value)}
+                      className="w-full rounded-2xl sm:rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 sm:py-3 text-base font-semibold text-gray-800 outline-none focus:border-blue-300 transition-colors"
+                      placeholder="Nome da Equipe 2..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowTeamNamesModal(false);
+                      if (returnToDashboard.current) {
+                        returnToDashboard.current = false;
+                        setShowDashboard(true);
+                      }
+                    }}
+                    className="flex-1 sm:flex-none rounded-2xl sm:rounded-xl px-5 py-4 sm:py-3 bg-gray-100 text-gray-700 font-black uppercase text-base sm:text-sm active:scale-95 transition-all"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={saveTeamNames}
+                    disabled={!draftTeam1Name.trim() || !draftTeam2Name.trim()}
+                    className="flex-1 rounded-2xl sm:rounded-xl px-5 py-4 sm:py-3 text-white font-black uppercase text-base sm:text-sm shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
+                    style={{ backgroundColor: activeTheme.primary }}
+                  >
+                    Confirmar
+                  </button>
+                </div>
               </div>
             </div>
           </div>
