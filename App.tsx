@@ -392,6 +392,11 @@ const App: React.FC = () => {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState<any[] | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const importFileRef = React.useRef<HTMLInputElement>(null);
   const [showModeSelection, setShowModeSelection] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -781,6 +786,85 @@ const App: React.FC = () => {
     await supabase.from('questions').delete().eq('id', id);
     setQDeleteId(null);
     fetchDbQuestions(uid);
+  };
+
+  const handleExport = () => {
+    if (dbQuestions.length === 0) { alert('Nenhuma pergunta para exportar.'); return; }
+    setIsExporting(true);
+    try {
+      const data = dbQuestions.map(q => ({
+        topic: q.topic,
+        question: q.question,
+        option_a: q.options.A ?? '',
+        option_b: q.options.B ?? '',
+        option_c: q.options.C ?? '',
+        option_d: q.options.D ?? '',
+        answer: q.answer,
+        source_type: q.source.type,
+        source_reference: q.source.reference,
+        points: q.points ?? 10,
+      }));
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `show-da-licao-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(parsed) || parsed.length === 0) { alert('Arquivo inválido ou vazio.'); return; }
+        const valid = parsed.filter(q => q.topic && q.question && q.option_a && q.option_b && q.answer);
+        if (valid.length === 0) { alert('Nenhuma pergunta válida encontrada no arquivo.'); return; }
+        setImportPreview(valid);
+        setShowImportModal(true);
+      } catch {
+        alert('Erro ao ler o arquivo. Verifique se é um JSON exportado pelo Show da Lição.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importPreview) return;
+    setIsImporting(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const uid = authUser?.id ?? null;
+    const toInsert = importPreview.map(q => ({
+      topic: q.topic ?? '',
+      question: q.question ?? '',
+      option_a: q.option_a ?? '',
+      option_b: q.option_b ?? '',
+      option_c: q.option_c || null,
+      option_d: q.option_d || null,
+      answer: q.answer ?? 'A',
+      source_type: q.source_type ?? 'licao',
+      source_reference: q.source_reference ?? '',
+      points: q.points ?? 10,
+      user_id: uid,
+    }));
+    const { error } = await supabase.from('questions').insert(toInsert);
+    setIsImporting(false);
+    setShowImportModal(false);
+    setImportPreview(null);
+    if (error) {
+      alert('Erro ao importar: ' + error.message);
+    } else {
+      fetchDbQuestions(uid);
+    }
   };
 
   useEffect(() => {
@@ -3370,13 +3454,39 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <span className="hidden sm:block text-xs font-normal text-gray-400">{filtered.length} pergunta{filtered.length !== 1 ? 's' : ''}</span>
+
+            {/* Exportar */}
+            <button
+              onClick={handleExport}
+              disabled={isExporting || dbQuestions.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg font-normal text-xs border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-40"
+              title="Exportar perguntas"
+            >
+              <i className={`fi ${isExporting ? 'fi-rr-spinner animate-spin' : 'fi-rr-file-export'} text-sm leading-none`} aria-hidden="true" />
+              <span className="hidden sm:inline">Exportar</span>
+            </button>
+
+            {/* Importar */}
+            <button
+              onClick={() => importFileRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg font-normal text-xs border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-all active:scale-95 disabled:opacity-40"
+              title="Importar perguntas"
+            >
+              <i className={`fi ${isImporting ? 'fi-rr-spinner animate-spin' : 'fi-rr-file-import'} text-sm leading-none`} aria-hidden="true" />
+              <span className="hidden sm:inline">Importar</span>
+            </button>
+            <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={handleImportFile} />
+
+            {/* Nova pergunta */}
             <button
               onClick={() => { setQDraft(emptyDraft()); setShowQModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-normal uppercase text-xs text-white transition-all active:scale-95 shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[36px] rounded-lg font-normal uppercase text-xs text-white transition-all active:scale-95 shadow-sm"
               style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}
             >
               <i className="fi fi-rr-plus text-sm leading-none" aria-hidden="true" />
-              Perguntas
+              <span className="hidden sm:inline">Perguntas</span>
+              <span className="sm:hidden">Nova</span>
             </button>
           </div>
         </div>
@@ -3616,6 +3726,60 @@ const App: React.FC = () => {
               <div className="flex gap-3">
                 <button onClick={() => setQDeleteId(null)} className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-600 font-normal text-sm">Cancelar</button>
                 <button onClick={() => handleDeleteQuestion(qDeleteId!)} className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-normal text-sm shadow-lg">Excluir</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal de confirmação de importação ── */}
+        {showImportModal && importPreview && (
+          <div className="fixed inset-0 z-[210] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm">
+              <div className="px-6 pt-6 pb-7">
+                {/* Ícone + título */}
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center shrink-0">
+                    <i className="fi fi-rr-file-import text-green-500 text-xl leading-none" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-base text-gray-800">Importar Perguntas</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">{importPreview.length} pergunta{importPreview.length !== 1 ? 's' : ''} encontrada{importPreview.length !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+
+                {/* Preview das primeiras perguntas */}
+                <div className="bg-gray-50 rounded-2xl border border-gray-100 divide-y divide-gray-100 mb-5 max-h-48 overflow-y-auto">
+                  {importPreview.slice(0, 5).map((q, i) => (
+                    <div key={i} className="px-4 py-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase mb-0.5">{q.topic || 'Sem tópico'}</p>
+                      <p className="text-sm text-gray-700 leading-snug line-clamp-2">{q.question}</p>
+                    </div>
+                  ))}
+                  {importPreview.length > 5 && (
+                    <div className="px-4 py-2.5 text-xs text-gray-400 text-center">
+                      + {importPreview.length - 5} pergunta{importPreview.length - 5 !== 1 ? 's' : ''} a mais
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs text-gray-500 mb-5 text-center">As perguntas serão adicionadas à sua conta.</p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setShowImportModal(false); setImportPreview(null); }}
+                    className="flex-1 py-4 rounded-2xl bg-gray-100 text-gray-700 font-semibold text-base active:scale-95 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleImportConfirm}
+                    disabled={isImporting}
+                    className="flex-1 py-4 rounded-2xl text-white font-semibold text-base active:scale-95 transition-all shadow-lg disabled:opacity-50"
+                    style={{ background: '#22c55e' }}
+                  >
+                    {isImporting ? 'Importando...' : 'Importar'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
