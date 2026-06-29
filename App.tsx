@@ -385,12 +385,37 @@ const App: React.FC = () => {
   const [qSearch, setQSearch] = useState('');
   const [showQModal, setShowQModal] = useState(false);
   type QDraft = { id?: number; topic: string; question: string; optA: string; optB: string; optC: string; optD: string; answer: QuestionOptionKey; sourceType: 'licao' | 'biblia'; sourceRef: string; points: number };
-  const emptyDraft = (): QDraft => ({ topic:'', question:'', optA:'', optB:'', optC:'', optD:'', answer:'A', sourceType:'licao', sourceRef:'', points:1 });
+  const emptyDraft = (): QDraft => ({ topic:'', question:'', optA:'', optB:'', optC:'', optD:'', answer:'A', sourceType:'licao', sourceRef:'', points:10 });
   const [qDraft, setQDraft] = useState<QDraft>(emptyDraft());
   const [qDeleteId, setQDeleteId] = useState<number | null>(null);
+  const [selectedQIds, setSelectedQIds] = useState<Set<number>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
   const [showModeSelection, setShowModeSelection] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
+  const [showDashboardMobileMenu, setShowDashboardMobileMenu] = useState(false);
+  const [isSharedSoloGame] = useState(() => new URLSearchParams(window.location.search).get('play') === 'solo');
+  const [sharedToken] = useState(() => new URLSearchParams(window.location.search).get('token'));
+  const [sharedPlayerName, setSharedPlayerName] = useState('');
+  const [sharedNameReady, setSharedNameReady] = useState(false);
+  const [sharedLinkExpired, setSharedLinkExpired] = useState(false);
+  const [sharedLinkUserId, setSharedLinkUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [sharingLink, setSharingLink] = useState(false);
+  const [showUserPanel, setShowUserPanel] = useState(false);
+  const [loggedInUserName, setLoggedInUserName] = useState('');
+  const [userPanelName, setUserPanelName] = useState('');
+  const [userPanelEmail, setUserPanelEmail] = useState('');
+  const [userPanelAvatarUrl, setUserPanelAvatarUrl] = useState('');
+  const [userPanelNewPwd, setUserPanelNewPwd] = useState('');
+  const [userPanelConfirmPwd, setUserPanelConfirmPwd] = useState('');
+  const [showUserNewPwd, setShowUserNewPwd] = useState(false);
+  const [showUserConfirmPwd, setShowUserConfirmPwd] = useState(false);
+  const [userPanelMsg, setUserPanelMsg] = useState<{type:'success'|'error',text:string}|null>(null);
+  const [userPanelSaving, setUserPanelSaving] = useState(false);
+  const [userPanelAvatarUploading, setUserPanelAvatarUploading] = useState(false);
   const returnToDashboard = React.useRef(false);
   const [loginMode, setLoginMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [loginConfirmPassword, setLoginConfirmPassword] = useState('');
@@ -474,14 +499,53 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchRankings();
-    fetchDbQuestions();
+
+    const isShared = new URLSearchParams(window.location.search).get('play') === 'solo';
+    const token = new URLSearchParams(window.location.search).get('token');
+
+    if (isShared && token) {
+      // Validate token and fetch questions for the link owner
+      supabase
+        .from('game_links')
+        .select('user_id, created_at')
+        .eq('id', token)
+        .single()
+        .then(({ data, error }) => {
+          if (error || !data) {
+            setSharedLinkExpired(true);
+            return;
+          }
+          const age = Date.now() - new Date(data.created_at).getTime();
+          if (age > 24 * 60 * 60 * 1000) {
+            setSharedLinkExpired(true);
+            return;
+          }
+          setSharedLinkUserId(data.user_id);
+          fetchDbQuestions(data.user_id);
+        });
+    }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsAdmin(!!session);
+      if (session?.user) {
+        const meta = session.user.user_metadata;
+        setLoggedInUserName(meta?.full_name ?? meta?.name ?? session.user.email?.split('@')[0] ?? '');
+        setCurrentUserId(session.user.id);
+        fetchDbQuestions(session.user.id);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAdmin(!!session);
+      if (session?.user) {
+        const meta = session.user.user_metadata;
+        setLoggedInUserName(meta?.full_name ?? meta?.name ?? session.user.email?.split('@')[0] ?? '');
+        setCurrentUserId(session.user.id);
+        fetchDbQuestions(session.user.id);
+      } else {
+        setLoggedInUserName('');
+        setCurrentUserId(null);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -524,6 +588,75 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsAdmin(false);
+  };
+
+  useEffect(() => {
+    if (!showUserPanel) return;
+    setUserPanelMsg(null);
+    setUserPanelNewPwd('');
+    setUserPanelConfirmPwd('');
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      setUserPanelEmail(user.email ?? '');
+      setUserPanelName(user.user_metadata?.full_name ?? user.user_metadata?.name ?? '');
+      setUserPanelAvatarUrl(user.user_metadata?.avatar_url ?? '');
+    });
+  }, [showUserPanel]);
+
+  const handleUserPanelAvatarUpload = async (file: File) => {
+    if (file.size > 2 * 1024 * 1024) {
+      setUserPanelMsg({ type: 'error', text: 'Foto deve ter no máximo 2 MB.' });
+      return;
+    }
+    setUserPanelAvatarUploading(true);
+    setUserPanelMsg(null);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setUserPanelAvatarUploading(false); return; }
+    const ext = file.name.split('.').pop() ?? 'jpg';
+    const path = `${user.id}/avatar.${ext}`;
+    const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+    if (upErr) {
+      setUserPanelMsg({ type: 'error', text: 'Erro ao enviar foto. Bucket "avatars" não encontrado.' });
+      setUserPanelAvatarUploading(false);
+      return;
+    }
+    const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+    const url = data.publicUrl;
+    const { error: metaErr } = await supabase.auth.updateUser({ data: { avatar_url: url } });
+    if (metaErr) { setUserPanelMsg({ type: 'error', text: metaErr.message }); }
+    else { setUserPanelAvatarUrl(url + '?t=' + Date.now()); setUserPanelMsg({ type: 'success', text: 'Foto atualizada!' }); }
+    setUserPanelAvatarUploading(false);
+  };
+
+  const handleUserPanelSave = async () => {
+    setUserPanelSaving(true);
+    setUserPanelMsg(null);
+    if (userPanelNewPwd) {
+      if (userPanelNewPwd.length < 6) {
+        setUserPanelMsg({ type: 'error', text: 'A senha deve ter pelo menos 6 caracteres.' });
+        setUserPanelSaving(false);
+        return;
+      }
+      if (userPanelNewPwd !== userPanelConfirmPwd) {
+        setUserPanelMsg({ type: 'error', text: 'As senhas não coincidem.' });
+        setUserPanelSaving(false);
+        return;
+      }
+    }
+    const updates: Parameters<typeof supabase.auth.updateUser>[0] = {
+      data: { full_name: userPanelName.trim() },
+    };
+    if (userPanelNewPwd) updates.password = userPanelNewPwd;
+    const { error } = await supabase.auth.updateUser(updates);
+    if (error) {
+      setUserPanelMsg({ type: 'error', text: error.message });
+    } else {
+      setUserPanelMsg({ type: 'success', text: 'Perfil salvo com sucesso!' });
+      setLoggedInUserName(userPanelName.trim() || loggedInUserName);
+      setUserPanelNewPwd('');
+      setUserPanelConfirmPwd('');
+    }
+    setUserPanelSaving(false);
   };
 
   const handleRegister = async () => {
@@ -592,9 +725,11 @@ const App: React.FC = () => {
     }
   };
 
-  const fetchDbQuestions = async () => {
+  const fetchDbQuestions = async (userId?: string | null) => {
     setDbLoading(true);
-    const { data, error } = await supabase.from('questions').select('*').order('id', { ascending: true });
+    let query = supabase.from('questions').select('*').order('id', { ascending: true });
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query;
     if (!error && data) {
       setDbQuestions(data.map((q: any) => ({
         id: q.id,
@@ -615,6 +750,8 @@ const App: React.FC = () => {
       return;
     }
     setDbSaving(true);
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const uid = authUser?.id ?? null;
     const payload = {
       topic: qDraft.topic.trim(),
       question: qDraft.question.trim(),
@@ -626,6 +763,7 @@ const App: React.FC = () => {
       source_type: qDraft.sourceType,
       source_reference: qDraft.sourceRef.trim(),
       points: qDraft.points,
+      user_id: uid,
     };
     if (qDraft.id) {
       await supabase.from('questions').update(payload).eq('id', qDraft.id);
@@ -634,13 +772,15 @@ const App: React.FC = () => {
     }
     setDbSaving(false);
     setShowQModal(false);
-    fetchDbQuestions();
+    fetchDbQuestions(uid);
   };
 
   const handleDeleteQuestion = async (id: number) => {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const uid = authUser?.id ?? null;
     await supabase.from('questions').delete().eq('id', id);
     setQDeleteId(null);
-    fetchDbQuestions();
+    fetchDbQuestions(uid);
   };
 
   useEffect(() => {
@@ -695,6 +835,28 @@ const App: React.FC = () => {
   useEffect(() => {
     window.localStorage.setItem('appGameZoomLevel', String(gameZoomLevel));
   }, [gameZoomLevel]);
+
+  useEffect(() => {
+    if (!isSharedSoloGame || !sharedNameReady || dbQuestions.length === 0) return;
+    const name = sharedPlayerName.trim() || 'Jogador';
+    setGameState(prev => ({
+      ...prev,
+      mode: 'playing',
+      currentQuestionIndex: 0,
+      currentTeamIndex: 0,
+      teams: [
+        { name, score: 0, lifelinesUsed: [] },
+        { name: 'CPU', score: 0, lifelinesUsed: [] },
+      ],
+      selectedOption: null,
+      showExplanation: false,
+      explanationType: null,
+      lifelineResult: null,
+      hiddenOptions: [],
+      shuffledQuestions: shuffleArray(dbQuestions),
+      isSoloMode: true,
+    }));
+  }, [isSharedSoloGame, sharedNameReady, dbQuestions, sharedPlayerName]);
 
   useEffect(() => {
     window.localStorage.setItem('appColorTheme', themeId);
@@ -2188,8 +2350,8 @@ const App: React.FC = () => {
   ) : null;
 
   const updateDialog = showUpdateDialog && showUpdateButton ? (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 md:p-6 shadow-2xl text-center" style={{ fontFamily: 'Arial, sans-serif' }}>
+    <div className="fixed inset-0 z-[9998] flex items-end sm:items-center justify-center sm:p-4 bg-black/65 backdrop-blur-sm">
+      <div className="w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl bg-white p-5 md:p-6 shadow-2xl text-center" style={{ fontFamily: 'Arial, sans-serif' }}>
         <h3 className="text-lg md:text-xl font-bold text-black mb-3">Nova versão disponível</h3>
         <p className="text-sm md:text-base text-black mb-1">Existe uma atualização para o aplicativo desktop.</p>
         {updaterState.downloading ? (
@@ -3038,76 +3200,157 @@ const App: React.FC = () => {
       <div className="min-h-[100dvh] flex flex-col bg-gray-50" style={{ fontFamily: 'Arial Local, Arial, sans-serif' }}>
 
         {/* ── Header ── */}
-        <div className="flex-shrink-0 flex items-center justify-between gap-2 px-3 sm:px-8 py-2.5 shadow-sm" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}>
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <img src={showDaLicaoLogo} alt="Show da Lição" className="h-7 sm:h-10 w-auto object-contain drop-shadow" />
-            <div className="hidden sm:block h-6 w-px bg-white/30" />
-            <div className="hidden sm:block">
-              <p className="text-[10px] font-normal uppercase tracking-[0.3em] text-white/60 leading-none">Painel do Professor</p>
-              <p className="text-sm font-normal text-white leading-none mt-0.5">Gerenciar Perguntas</p>
+        <div className="flex-shrink-0 relative" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}>
+          <div className="flex items-center justify-between gap-2 px-3 sm:px-8 py-2.5 shadow-sm">
+            {/* Logo + título */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <img src={showDaLicaoLogo} alt="Show da Lição" className="h-7 sm:h-10 w-auto object-contain drop-shadow" />
+              <div className="hidden sm:block h-6 w-px bg-white/30" />
+              <div className="hidden sm:block">
+                <p className="text-[10px] font-normal uppercase tracking-[0.3em] text-white/60 leading-none">Painel do Professor</p>
+                <p className="text-sm font-normal text-white leading-none mt-0.5">Gerenciar Perguntas</p>
+                {loggedInUserName && (
+                  <p className="text-[10px] text-white/50 leading-none mt-1">
+                    Bem-vindo, <span className="text-white/80">{loggedInUserName}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Botões direita */}
+            <div className="flex items-center gap-0.5 sm:gap-1 shrink-0">
+
+              {/* Desktop: Início antes de Jogar */}
+              <button
+                onClick={() => setShowDashboard(false)}
+                className="hidden sm:flex items-center px-2.5 py-2 rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95"
+              >
+                Início
+              </button>
+
+              {/* Sempre visíveis: Jogar, Jogo, Ranking */}
+              <button
+                onClick={() => { returnToDashboard.current = true; setShowDashboard(false); openTeamNamesModal(); }}
+                className="flex items-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95"
+              >
+                <i className="fi fi-rr-gamepad text-sm leading-none" aria-hidden="true" />
+                Jogar
+              </button>
+              <button
+                disabled={sharingLink}
+                onClick={async () => {
+                  if (sharingLink) return;
+                  setSharingLink(true);
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) { alert('Faça login para gerar o link.'); return; }
+                    const { data, error } = await supabase
+                      .from('game_links')
+                      .insert({ user_id: user.id })
+                      .select('id')
+                      .single();
+                    if (error || !data) { alert('Erro ao gerar link. Verifique se a tabela game_links foi criada no Supabase.'); return; }
+                    const gameUrl = `${window.location.origin}${window.location.pathname}?play=solo&token=${data.id}`;
+                    setShareUrl(gameUrl);
+                    setShowShareModal(true);
+                  } finally {
+                    setSharingLink(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 disabled:opacity-40"
+                title="Compartilhar link do jogo (válido 24h)"
+              >
+                <i className={`fi ${sharingLink ? 'fi-rr-spinner animate-spin' : 'fi-rr-share'} text-sm leading-none`} aria-hidden="true" />
+                <span className="hidden sm:inline">Jogo</span>
+              </button>
+              <button
+                onClick={() => setShowRanking(true)}
+                className="hidden sm:flex items-center px-2.5 py-2 rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95"
+              >
+                Ranking
+              </button>
+
+              {/* Desktop: ícones e Sair */}
+              <div className="hidden sm:flex items-center gap-1">
+                <div className="w-px h-4 bg-white/15 mx-1" />
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95"
+                  title="Configurações"
+                >
+                  <i className="fi fi-rr-settings text-sm leading-none" aria-hidden="true" />
+                </button>
+                <button
+                  onClick={() => setShowUserPanel(true)}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95"
+                  title="Meu perfil"
+                >
+                  <i className="fi fi-rr-user text-sm leading-none" aria-hidden="true" />
+                </button>
+                <div className="w-px h-4 bg-white/15 mx-1" />
+                <button
+                  onClick={async () => { await handleLogout(); setShowDashboard(false); }}
+                  className="px-2.5 py-2 rounded-lg text-xs text-white/40 hover:text-red-400 transition-colors active:scale-95"
+                >
+                  Sair
+                </button>
+              </div>
+
+              {/* Mobile: hambúrguer */}
+              <button
+                onClick={() => setShowDashboardMobileMenu(v => !v)}
+                className="sm:hidden w-9 h-9 flex flex-col items-center justify-center gap-[5px] rounded-lg text-white/60 hover:text-white/90 hover:bg-white/10 transition-all active:scale-95 ml-1"
+                aria-label="Menu"
+              >
+                <span className={`block w-[18px] h-[2px] bg-current rounded-full transition-all duration-200 ${showDashboardMobileMenu ? 'rotate-45 translate-y-[7px]' : ''}`} />
+                <span className={`block w-[18px] h-[2px] bg-current rounded-full transition-all duration-200 ${showDashboardMobileMenu ? 'opacity-0' : ''}`} />
+                <span className={`block w-[18px] h-[2px] bg-current rounded-full transition-all duration-200 ${showDashboardMobileMenu ? '-rotate-45 -translate-y-[7px]' : ''}`} />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto min-w-0 shrink">
-            <button
-              onClick={() => setShowDashboard(false)}
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
-              title="Início"
-            >
-              <i className="fi fi-rr-home text-sm leading-none sm:hidden" aria-hidden="true" />
-              <span className="hidden sm:inline">Início</span>
-            </button>
-            <button
-              onClick={() => setShowRanking(true)}
-              className="flex items-center gap-1 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
-              title="Ranking"
-            >
-              <i className="fi fi-rr-trophy text-sm leading-none sm:hidden" aria-hidden="true" />
-              <span className="hidden sm:inline">Ranking</span>
-            </button>
-            <button
-              onClick={() => { returnToDashboard.current = true; setShowDashboard(false); openTeamNamesModal(); }}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
-            >
-              <i className="fi fi-rr-gamepad text-sm leading-none" aria-hidden="true" />
-              <span>Jogar</span>
-            </button>
-            <button
-              onClick={() => {
-                const url = window.location.href;
-                if (navigator.share) {
-                  navigator.share({ title: 'Show da Lição', text: 'Participe do jogo!', url });
-                } else {
-                  navigator.clipboard.writeText(url).then(() => alert('Link copiado!'));
-                }
-              }}
-              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
-              title="Compartilhar jogo"
-            >
-              <i className="fi fi-rr-share text-sm leading-none" aria-hidden="true" />
-              <span className="hidden sm:inline">Jogo</span>
-            </button>
-            <div className="w-px h-4 bg-white/15 mx-0.5 sm:mx-1 shrink-0" />
-            <button
-              onClick={() => setShowSettings(true)}
-              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95 shrink-0"
-              title="Configurações"
-            >
-              <i className="fi fi-rr-settings text-sm leading-none" aria-hidden="true" />
-            </button>
-            <button
-              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95 shrink-0"
-              title="Usuário"
-            >
-              <i className="fi fi-rr-user text-sm leading-none" aria-hidden="true" />
-            </button>
-            <div className="w-px h-4 bg-white/15 mx-0.5 sm:mx-1 shrink-0" />
-            <button
-              onClick={async () => { await handleLogout(); setShowDashboard(false); }}
-              className="px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/40 hover:text-red-400 transition-colors active:scale-95 shrink-0"
-            >
-              Sair
-            </button>
-          </div>
+
+          {/* Dropdown mobile */}
+          {showDashboardMobileMenu && (
+            <div className="sm:hidden absolute top-full left-0 right-0 z-[100] shadow-xl border-t border-white/10 py-1" style={{ background: `linear-gradient(180deg, ${activeTheme.primary} 0%, ${mixHex(activeTheme.primary,'#001122',0.25)} 100%)` }}>
+              <button
+                onClick={() => { setShowDashboard(false); setShowDashboardMobileMenu(false); }}
+                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <i className="fi fi-rr-home text-base leading-none w-5" aria-hidden="true" />
+                Início
+              </button>
+              <button
+                onClick={() => { setShowRanking(true); setShowDashboardMobileMenu(false); }}
+                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <i className="fi fi-rr-trophy text-base leading-none w-5" aria-hidden="true" />
+                Ranking
+              </button>
+              <div className="h-px mx-5 my-1 bg-white/10" />
+              <button
+                onClick={() => { setShowSettings(true); setShowDashboardMobileMenu(false); }}
+                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <i className="fi fi-rr-settings text-base leading-none w-5" aria-hidden="true" />
+                Configurações
+              </button>
+              <button
+                onClick={() => { setShowUserPanel(true); setShowDashboardMobileMenu(false); }}
+                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <i className="fi fi-rr-user text-base leading-none w-5" aria-hidden="true" />
+                Meu Perfil
+              </button>
+              <div className="h-px mx-5 my-1 bg-white/10" />
+              <button
+                onClick={async () => { await handleLogout(); setShowDashboard(false); setShowDashboardMobileMenu(false); }}
+                className="flex items-center gap-3 w-full px-5 py-3 text-sm text-white/40 hover:text-red-400 hover:bg-white/10 transition-colors"
+              >
+                <i className="fi fi-rr-sign-out-alt text-base leading-none w-5" aria-hidden="true" />
+                Sair
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── Barra de ações ── */}
@@ -3135,6 +3378,36 @@ const App: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Barra de seleção em massa ── */}
+        {!dbLoading && filtered.length > 0 && (
+          <div className="flex items-center gap-3 px-4 sm:px-8 py-2 border-b border-gray-100 bg-gray-50/60">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded accent-red-500 cursor-pointer"
+                checked={selectedQIds.size === filtered.length}
+                ref={el => { if (el) el.indeterminate = selectedQIds.size > 0 && selectedQIds.size < filtered.length; }}
+                onChange={e => {
+                  if (e.target.checked) setSelectedQIds(new Set(filtered.map(q => q.id)));
+                  else setSelectedQIds(new Set());
+                }}
+              />
+              <span className="text-xs text-gray-500 font-normal">
+                {selectedQIds.size > 0 ? `${selectedQIds.size} selecionada${selectedQIds.size !== 1 ? 's' : ''}` : 'Selecionar todas'}
+              </span>
+            </label>
+            {selectedQIds.size > 0 && (
+              <button
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors text-xs font-normal active:scale-95"
+              >
+                <i className="fi fi-rr-trash text-sm leading-none" aria-hidden="true" />
+                Excluir {selectedQIds.size}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* ── Lista ── */}
         <div className="flex-1 overflow-y-auto settings-scroll px-4 sm:px-8 py-5">
           {dbLoading ? (
@@ -3152,58 +3425,78 @@ const App: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3 max-w-4xl mx-auto">
-              {filtered.map((q, idx) => (
-                <div key={q.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow duration-200 p-4 sm:p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      {/* Número */}
-                      <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-normal text-white" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}>
-                        {idx + 1}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-[10px] font-normal uppercase tracking-wider px-2 py-0.5 rounded-full text-white" style={{ background: activeTheme.primary }}>{q.topic}</span>
-                          <span className="text-[10px] font-normal text-gray-400 uppercase">{q.source.reference}</span>
-                          {q.points && q.points > 1 && <span className="text-[10px] font-normal text-amber-500">{q.points}pts</span>}
+              {filtered.map((q, idx) => {
+                const isSelected = selectedQIds.has(q.id);
+                return (
+                  <div
+                    key={q.id}
+                    className={`bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 p-4 sm:p-5 ${isSelected ? 'border-red-300 bg-red-50/30' : 'border-gray-100'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          className="mt-1 w-4 h-4 shrink-0 rounded accent-red-500 cursor-pointer"
+                          checked={isSelected}
+                          onChange={e => {
+                            setSelectedQIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(q.id);
+                              else next.delete(q.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        {/* Número */}
+                        <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-normal text-white" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}>
+                          {idx + 1}
                         </div>
-                        <p className="text-sm font-normal text-gray-800 leading-snug mb-2">{q.question}</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                          {(['A','B','C','D'] as QuestionOptionKey[]).filter(k => q.options[k]).map(k => (
-                            <div key={k} className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1 ${q.answer === k ? 'bg-green-50 text-green-700' : 'text-gray-500'}`}>
-                              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-normal shrink-0 ${q.answer === k ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>{k}</span>
-                              {q.options[k]}
-                            </div>
-                          ))}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-[10px] font-normal uppercase tracking-wider px-2 py-0.5 rounded-full text-white" style={{ background: activeTheme.primary }}>{q.topic}</span>
+                            <span className="text-[10px] font-normal text-gray-400 uppercase">{q.source.reference}</span>
+                            {q.points && q.points > 1 && <span className="text-[10px] font-normal text-amber-500">{q.points}pts</span>}
+                          </div>
+                          <p className="text-sm font-normal text-gray-800 leading-snug mb-2">{q.question}</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                            {(['A','B','C','D'] as QuestionOptionKey[]).filter(k => q.options[k]).map(k => (
+                              <div key={k} className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1 ${q.answer === k ? 'bg-green-50 text-green-700' : 'text-gray-500'}`}>
+                                <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-normal shrink-0 ${q.answer === k ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>{k}</span>
+                                {q.options[k]}
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {/* Ações */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => {
-                          setQDraft({
-                            id: q.id, topic: q.topic, question: q.question,
-                            optA: q.options.A ?? '', optB: q.options.B ?? '', optC: q.options.C ?? '', optD: q.options.D ?? '',
-                            answer: q.answer, sourceType: q.source.type, sourceRef: q.source.reference, points: q.points ?? 1,
-                          });
-                          setShowQModal(true);
-                        }}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-500 hover:bg-blue-50 transition-colors duration-150"
-                        title="Editar"
-                      >
-                        <i className="fi fi-rr-edit text-sm" aria-hidden="true" />
-                      </button>
-                      <button
-                        onClick={() => setQDeleteId(q.id)}
-                        className="w-10 h-10 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-50 transition-colors duration-150"
-                        title="Excluir"
-                      >
-                        <i className="fi fi-rr-trash text-sm" aria-hidden="true" />
-                      </button>
+                      {/* Ações */}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            setQDraft({
+                              id: q.id, topic: q.topic, question: q.question,
+                              optA: q.options.A ?? '', optB: q.options.B ?? '', optC: q.options.C ?? '', optD: q.options.D ?? '',
+                              answer: q.answer, sourceType: q.source.type, sourceRef: q.source.reference, points: q.points ?? 1,
+                            });
+                            setShowQModal(true);
+                          }}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-500 hover:bg-blue-50 transition-colors duration-150"
+                          title="Editar"
+                        >
+                          <i className="fi fi-rr-edit text-sm" aria-hidden="true" />
+                        </button>
+                        <button
+                          onClick={() => setQDeleteId(q.id)}
+                          className="w-10 h-10 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-50 transition-colors duration-150"
+                          title="Excluir"
+                        >
+                          <i className="fi fi-rr-trash text-sm" aria-hidden="true" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -3278,7 +3571,15 @@ const App: React.FC = () => {
                 </div>
                 <div className="w-28">
                   <label className={labelCls}>Pontos</label>
-                  <input type="number" min={1} max={100} className={inputCls} value={qDraft.points} onChange={e => setQDraft(d => ({ ...d, points: Number(e.target.value) }))} />
+                  <input
+                    type="number" min={10} max={1000} step={10}
+                    className={inputCls}
+                    value={qDraft.points}
+                    onChange={e => {
+                      const raw = Number(e.target.value);
+                      setQDraft(d => ({ ...d, points: Math.round(raw / 10) * 10 || 10 }));
+                    }}
+                  />
                 </div>
               </div>
               {/* Rodapé modal */}
@@ -3302,8 +3603,8 @@ const App: React.FC = () => {
 
         {/* ── Confirmar exclusão ── */}
         {qDeleteId !== null && (
-          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl p-7 max-w-sm w-full text-center">
+          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+            <div className="bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 sm:p-7 max-w-sm w-full text-center">
               <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
                 <i className="fi fi-rr-trash text-2xl text-red-400" aria-hidden="true" />
               </div>
@@ -3317,7 +3618,327 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {/* ── Confirmar exclusão em massa ── */}
+        {showBulkDeleteConfirm && (
+          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+            <div className="bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 sm:p-7 max-w-sm w-full text-center">
+              <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+                <i className="fi fi-rr-trash text-2xl text-red-400" aria-hidden="true" />
+              </div>
+              <h3 className="font-normal text-lg text-gray-800 mb-2">Excluir {selectedQIds.size} pergunta{selectedQIds.size !== 1 ? 's' : ''}?</h3>
+              <p className="text-sm text-gray-500 mb-6">Esta ação não pode ser desfeita.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowBulkDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-600 font-normal text-sm">Cancelar</button>
+                <button
+                  onClick={async () => {
+                    const ids = Array.from(selectedQIds);
+                    const { data: { user: authUser } } = await supabase.auth.getUser();
+                    const uid = authUser?.id ?? null;
+                    await supabase.from('questions').delete().in('id', ids);
+                    setSelectedQIds(new Set());
+                    setShowBulkDeleteConfirm(false);
+                    fetchDbQuestions(uid);
+                  }}
+                  className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-normal text-sm shadow-lg"
+                >
+                  Excluir
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal compartilhar jogo ── */}
+        {showShareModal && (
+          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+            <div className="bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl p-6 sm:p-7 max-w-sm w-full">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-blue-50 flex items-center justify-center">
+                    <i className="fi fi-rr-share text-blue-500 text-base leading-none" aria-hidden="true" />
+                  </div>
+                  <div>
+                    <h3 className="font-normal text-base text-gray-800 leading-tight">Compartilhar Jogo</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">Link válido por 24 horas</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowShareModal(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors">
+                  <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
+                </button>
+              </div>
+
+              {/* Link */}
+              <div className="flex items-center gap-2 bg-gray-50 rounded-2xl px-4 py-3 mb-4 border border-gray-200">
+                <span className="flex-1 text-xs text-gray-600 break-all leading-relaxed font-mono">{shareUrl}</span>
+              </div>
+
+              {/* Botões */}
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(shareUrl).then(() => {
+                      alert('Link copiado!');
+                    }).catch(() => {
+                      // fallback para Electron
+                      const el = document.createElement('textarea');
+                      el.value = shareUrl;
+                      document.body.appendChild(el);
+                      el.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(el);
+                      alert('Link copiado!');
+                    });
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-gray-100 text-gray-700 font-normal text-sm hover:bg-gray-200 transition-colors active:scale-95"
+                >
+                  <i className="fi fi-rr-copy-alt leading-none" aria-hidden="true" />
+                  Copiar link
+                </button>
+                <button
+                  onClick={() => {
+                    const waText = encodeURIComponent(`🎯 Jogue o Show da Lição!\n\nResponda perguntas bíblicas e veja sua pontuação no ranking.\n\n👉 ${shareUrl}\n\n_(Link válido por 24 horas)_`);
+                    window.open(`https://wa.me/?text=${waText}`, '_blank');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-normal text-sm active:scale-95 shadow-lg"
+                  style={{ background: '#25D366' }}
+                >
+                  <i className="fi fi-brands-whatsapp leading-none" aria-hidden="true" />
+                  Compartilhar no WhatsApp
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {rankingOverlay}
+
+        {/* ── Painel de conta do usuário ── */}
+        {showUserPanel && (() => {
+          const initials = userPanelName
+            ? userPanelName.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
+            : userPanelEmail.slice(0, 2).toUpperCase();
+          return (
+            <div className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center sm:p-4" style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)' }}>
+              <div className="w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] overflow-hidden" style={{ fontFamily: 'Arial Local, Arial, sans-serif' }}>
+
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                      <i className="fi fi-rr-user text-white text-sm leading-none" aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.3em] text-white/50 leading-none mb-0.5">Conta</p>
+                      <h2 className="text-sm font-medium text-white leading-none">Meu Perfil</h2>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowUserPanel(false)} className="w-8 h-8 flex items-center justify-center text-white/60 hover:text-red-300 transition-colors active:scale-90" aria-label="Fechar">
+                    <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-y-auto settings-scroll p-5 space-y-5">
+
+                  {/* Feedback */}
+                  {userPanelMsg && (
+                    <div className={`flex items-center gap-2.5 rounded-2xl px-4 py-3 text-sm ${userPanelMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                      <i className={`fi ${userPanelMsg.type === 'success' ? 'fi-rr-check-circle' : 'fi-rr-exclamation'} leading-none shrink-0`} aria-hidden="true" />
+                      {userPanelMsg.text}
+                    </div>
+                  )}
+
+                  {/* Avatar */}
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="relative">
+                      <div className="w-20 h-20 rounded-full overflow-hidden border-4 flex items-center justify-center text-white text-2xl font-medium" style={{ borderColor: hexToRgba(activeTheme.primary, 0.3), background: `linear-gradient(135deg, ${activeTheme.gradientStart}, ${activeTheme.primary})` }}>
+                        {userPanelAvatarUrl
+                          ? <img src={userPanelAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                          : initials}
+                      </div>
+                      {userPanelAvatarUploading && (
+                        <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center">
+                          <i className="fi fi-rr-spinner text-white text-xl animate-spin leading-none" aria-hidden="true" />
+                        </div>
+                      )}
+                    </div>
+                    <label className="cursor-pointer flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border transition-colors hover:bg-gray-50" style={{ color: activeTheme.primary, borderColor: hexToRgba(activeTheme.primary, 0.3) }}>
+                      <i className="fi fi-rr-camera leading-none" aria-hidden="true" />
+                      {userPanelAvatarUploading ? 'Enviando...' : 'Alterar foto'}
+                      <input
+                        type="file" accept="image/*" className="hidden"
+                        disabled={userPanelAvatarUploading}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleUserPanelAvatarUpload(f); e.target.value = ''; }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Informações */}
+                  <div className="bg-gray-50 rounded-2xl overflow-hidden border border-gray-100">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+                      <i className="fi fi-rr-id-card text-sm leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      <p className="text-xs font-medium text-gray-600 uppercase tracking-wider">Informações</p>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Nome de exibição</label>
+                        <input
+                          type="text" value={userPanelName} onChange={e => setUserPanelName(e.target.value)}
+                          placeholder="Seu nome"
+                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-base sm:text-sm text-gray-800 outline-none focus:border-blue-300 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">E-mail</label>
+                        <input
+                          type="email" value={userPanelEmail} readOnly
+                          className="w-full rounded-xl border border-gray-100 bg-gray-100 px-3 py-2.5 text-base sm:text-sm text-gray-500 outline-none cursor-not-allowed"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Segurança */}
+                  <div className="bg-gray-50 rounded-2xl overflow-hidden border border-gray-100">
+                    <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
+                      <i className="fi fi-rr-lock text-sm leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      <p className="text-xs font-medium text-gray-600 uppercase tracking-wider">Segurança</p>
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Nova senha <span className="text-gray-300">(deixe vazio para não alterar)</span></label>
+                        <div className="relative">
+                          <input
+                            type={showUserNewPwd ? 'text' : 'password'} value={userPanelNewPwd}
+                            onChange={e => setUserPanelNewPwd(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-3 pr-10 py-2.5 text-base sm:text-sm text-gray-800 outline-none focus:border-blue-300 transition-colors"
+                            autoComplete="new-password"
+                          />
+                          <button type="button" onClick={() => setShowUserNewPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
+                            <i className={`fi ${showUserNewPwd ? 'fi-rr-eye-crossed' : 'fi-rr-eye'} text-sm leading-none`} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                      {userPanelNewPwd && (
+                        <div>
+                          <label className="block text-xs text-gray-400 mb-1">Confirmar nova senha</label>
+                          <div className="relative">
+                            <input
+                              type={showUserConfirmPwd ? 'text' : 'password'} value={userPanelConfirmPwd}
+                              onChange={e => setUserPanelConfirmPwd(e.target.value)}
+                              placeholder="••••••••"
+                              className="w-full rounded-xl border border-gray-200 bg-white px-3 pr-10 py-2.5 text-base sm:text-sm text-gray-800 outline-none focus:border-blue-300 transition-colors"
+                              autoComplete="new-password"
+                            />
+                            <button type="button" onClick={() => setShowUserConfirmPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
+                              <i className={`fi ${showUserConfirmPwd ? 'fi-rr-eye-crossed' : 'fi-rr-eye'} text-sm leading-none`} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 bg-white">
+                  <button
+                    onClick={handleUserPanelSave}
+                    disabled={userPanelSaving}
+                    className="w-full py-3 rounded-2xl text-white text-sm font-medium transition-all active:scale-95 disabled:opacity-50 shadow-sm"
+                    style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}
+                  >
+                    {userPanelSaving
+                      ? <><i className="fi fi-rr-spinner animate-spin mr-2 leading-none" aria-hidden="true" />Salvando...</>
+                      : <><i className="fi fi-rr-check mr-2 leading-none" aria-hidden="true" />Salvar alterações</>}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          );
+        })()}
+
+      </div>
+    );
+  }
+
+  if (isSharedSoloGame && !sharedNameReady && gameState.mode !== 'playing' && gameState.mode !== 'gameover') {
+    // Token inválido ou sem token
+    const noToken = !sharedToken;
+    // Determina o estado de carregamento: aguardando validação do token
+    const validating = !noToken && !sharedLinkExpired && sharedLinkUserId === null;
+    const canStart = !noToken && !sharedLinkExpired && dbQuestions.length > 0;
+
+    const handleSharedStart = () => {
+      if (!canStart) return;
+      setSharedNameReady(true);
+    };
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}>
+        <div className="w-full max-w-sm flex flex-col items-center gap-6">
+          <img src="img/logo.png" alt="Logo" className="h-20 drop-shadow-lg" />
+          <div className="text-center">
+            <h1 className="text-white text-2xl font-normal tracking-wide">Show da Lição</h1>
+            <p className="text-white/60 text-sm mt-1">Quiz Bíblico</p>
+          </div>
+
+          <div className="w-full bg-white/10 backdrop-blur-sm rounded-3xl p-6 flex flex-col gap-5 shadow-xl">
+            {sharedLinkExpired || noToken ? (
+              /* Link expirado ou inválido */
+              <div className="flex flex-col items-center gap-3 py-2 text-center">
+                <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center">
+                  <i className="fi fi-rr-time-past text-white/60 text-2xl leading-none" aria-hidden="true" />
+                </div>
+                <p className="text-white font-normal text-base">
+                  {noToken ? 'Link inválido' : 'Este link expirou'}
+                </p>
+                <p className="text-white/50 text-sm leading-relaxed">
+                  {noToken
+                    ? 'Solicite um novo link ao professor.'
+                    : 'Os links do jogo são válidos por 24 horas. Solicite um novo link ao professor.'}
+                </p>
+              </div>
+            ) : validating || dbQuestions.length === 0 ? (
+              /* Carregando / validando */
+              <div className="flex flex-col items-center gap-3 py-2">
+                <i className="fi fi-rr-spinner animate-spin text-white/60 text-2xl leading-none" aria-hidden="true" />
+                <p className="text-white/70 text-sm">Carregando o jogo...</p>
+              </div>
+            ) : (
+              /* Pronto: pede o nome */
+              <>
+                <div className="text-center">
+                  <p className="text-white font-normal text-base">Qual é o seu nome?</p>
+                  <p className="text-white/50 text-xs mt-1">{dbQuestions.length} perguntas disponíveis</p>
+                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  maxLength={30}
+                  value={sharedPlayerName}
+                  onChange={e => setSharedPlayerName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSharedStart()}
+                  placeholder="Digite seu nome..."
+                  className="w-full px-4 py-3 rounded-2xl bg-white/20 text-white placeholder-white/40 text-base font-normal outline-none focus:bg-white/30 transition-colors"
+                />
+                <button
+                  onClick={handleSharedStart}
+                  className="w-full py-3.5 rounded-2xl text-white font-normal text-base transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2"
+                  style={{ background: 'rgba(255,255,255,0.25)', backdropFilter: 'blur(8px)' }}
+                >
+                  <i className="fi fi-rr-gamepad leading-none" aria-hidden="true" />
+                  Jogar
+                </button>
+              </>
+            )}
+          </div>
+          {!sharedLinkExpired && !noToken && (
+            <p className="text-white/30 text-xs text-center">Sua pontuação será salva no ranking</p>
+          )}
+        </div>
       </div>
     );
   }
@@ -3377,13 +3998,13 @@ const App: React.FC = () => {
           <div className="rounded-3xl p-7 shadow-2xl" style={{ background: 'rgba(255,255,255,0.10)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.2)' }}>
 
             {/* Título */}
-            <h2 className="text-xl font-black text-white text-center mb-0.5">{titles[loginMode]}</h2>
-            <p className="text-white/50 text-xs text-center font-semibold mb-6">{subtitles[loginMode]}</p>
+            <h2 className="text-xl font-medium text-white text-center mb-0.5">{titles[loginMode]}</h2>
+            <p className="text-white/50 text-xs text-center mb-6">{subtitles[loginMode]}</p>
 
             {/* Mensagem de feedback */}
             {loginMessage && (
               <div
-                className="flex items-start gap-2.5 rounded-2xl px-4 py-3 mb-5 text-sm font-semibold"
+                className="flex items-start gap-2.5 rounded-2xl px-4 py-3 mb-5 text-sm"
                 style={{
                   background: loginMessage.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
                   border: `1px solid ${loginMessage.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
@@ -3408,7 +4029,7 @@ const App: React.FC = () => {
                     onChange={e => setLoginName(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleRegister()}
                     placeholder="Seu nome"
-                    className="w-full rounded-2xl pl-11 pr-4 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    className="w-full rounded-2xl pl-11 pr-4 py-3 text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
                     style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
                     autoComplete="name"
                     maxLength={40}
@@ -3425,7 +4046,7 @@ const App: React.FC = () => {
                   onChange={e => setLoginEmail(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && loginMode === 'login' && handleLogin()}
                   placeholder="seu@email.com"
-                  className="w-full rounded-2xl pl-11 pr-4 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                  className="w-full rounded-2xl pl-11 pr-4 py-3 text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
                   style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
                   autoComplete="email"
                 />
@@ -3441,7 +4062,7 @@ const App: React.FC = () => {
                     onChange={e => setLoginPassword(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && loginMode === 'login' && handleLogin()}
                     placeholder="••••••••"
-                    className="w-full rounded-2xl pl-11 pr-11 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    className="w-full rounded-2xl pl-11 pr-11 py-3 text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
                     style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
                     autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'}
                   />
@@ -3467,7 +4088,7 @@ const App: React.FC = () => {
                     onChange={e => setLoginConfirmPassword(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleRegister()}
                     placeholder="Confirmar senha"
-                    className="w-full rounded-2xl pl-11 pr-11 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    className="w-full rounded-2xl pl-11 pr-11 py-3 text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
                     style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
                     autoComplete="new-password"
                   />
@@ -3489,7 +4110,7 @@ const App: React.FC = () => {
               <div className="flex justify-end mb-5">
                 <button
                   onClick={() => switchMode('forgot')}
-                  className="text-xs font-bold text-white/60 hover:text-white transition-colors duration-150 underline underline-offset-2"
+                  className="text-xs text-white/60 hover:text-white transition-colors duration-150 underline underline-offset-2"
                 >
                   Esqueceu sua senha?
                 </button>
@@ -3499,7 +4120,7 @@ const App: React.FC = () => {
             {/* Botão principal */}
             <button
               onClick={loginMode === 'login' ? handleLogin : loginMode === 'register' ? handleRegister : handleForgotPassword}
-              className="w-full py-3.5 font-black text-base rounded-2xl transition-all duration-200 active:scale-95 mb-4"
+              className="w-full py-3.5 font-medium text-base rounded-2xl transition-all duration-200 active:scale-95 mb-4"
               style={{ background: '#ffffff', color: activeTheme.primary, boxShadow: '0 8px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.9)' }}
             >
               {loginMode === 'login' && <><i className="fi fi-rr-sign-in-alt mr-2" aria-hidden="true" />Entrar</>}
@@ -3508,7 +4129,7 @@ const App: React.FC = () => {
             </button>
 
             {/* Links de alternância */}
-            <div className="flex flex-col items-center gap-2 text-xs font-bold">
+            <div className="flex flex-col items-center gap-2 text-xs">
               {loginMode === 'login' && (
                 <div className="flex items-center gap-4">
                   <button onClick={() => switchMode('register')} className="text-white/55 hover:text-white transition-colors duration-150">
