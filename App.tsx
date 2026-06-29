@@ -1856,24 +1856,26 @@ const App: React.FC = () => {
     };
   }, [showWrongResult, effectsVolume]);
 
-  const saveRankingEntries = async (teams: Team[]) => {
+  const saveRankingEntries = async (teams: Team[], forceAll = false) => {
     const now = new Date().toISOString();
     const entries = teams
-      .filter(team => team.score > 0)
+      .filter(team => forceAll ? team.name.trim() : team.score > 0)
       .map(team => ({
         name: team.name,
         score: team.score,
         created_at: now
       }));
 
-    if (entries.length > 0) {
-      try {
-        const { error } = await supabase.from('showdalicao').insert(entries);
-        if (error) throw error;
-        fetchRankings(); // Refresh list
-      } catch (err) {
-        console.error('Error saving rankings:', err);
+    if (entries.length === 0) return;
+
+    const { error } = await supabase.from('showdalicao').insert(entries);
+    if (error) {
+      console.error('Erro ao salvar ranking:', error.message);
+      if (error.message?.includes('row-level security') || error.code === '42501') {
+        alert('Não foi possível salvar a pontuação no ranking.\n\nO administrador precisa habilitar inserções públicas na tabela "showdalicao" no Supabase.');
       }
+    } else {
+      fetchRankings();
     }
   };
 
@@ -3231,9 +3233,9 @@ const App: React.FC = () => {
               {/* Sempre visíveis: Jogar, Jogo, Ranking */}
               <button
                 onClick={() => { returnToDashboard.current = true; setShowDashboard(false); openTeamNamesModal(); }}
-                className="flex items-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95"
+                className="flex items-center gap-1.5 px-3 sm:px-2.5 py-2 min-h-[44px] sm:min-h-[36px] rounded-xl sm:rounded-lg text-sm sm:text-xs text-white/70 sm:text-white/50 hover:text-white/90 transition-colors active:scale-95"
               >
-                <i className="fi fi-rr-gamepad text-sm leading-none" aria-hidden="true" />
+                <i className="fi fi-rr-gamepad text-base sm:text-sm leading-none" aria-hidden="true" />
                 Jogar
               </button>
               <button
@@ -3257,10 +3259,10 @@ const App: React.FC = () => {
                     setSharingLink(false);
                   }
                 }}
-                className="flex items-center gap-1.5 px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 disabled:opacity-40"
-                title="Compartilhar link do jogo (válido 24h)"
+                className="flex items-center gap-1.5 px-3 sm:px-2.5 py-2 min-h-[44px] sm:min-h-[36px] rounded-xl sm:rounded-lg text-sm sm:text-xs text-white/70 sm:text-white/50 hover:text-white/90 transition-colors active:scale-95 disabled:opacity-40"
+                title="Compartilhar link do jogo"
               >
-                <i className={`fi ${sharingLink ? 'fi-rr-spinner animate-spin' : 'fi-rr-share'} text-sm leading-none`} aria-hidden="true" />
+                <i className={`fi ${sharingLink ? 'fi-rr-spinner animate-spin' : 'fi-rr-share'} text-base sm:text-sm leading-none`} aria-hidden="true" />
                 <span className="hidden sm:inline">Jogo</span>
               </button>
               <button
@@ -3659,7 +3661,7 @@ const App: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="font-normal text-base text-gray-800 leading-tight">Compartilhar Jogo</h3>
-                    <p className="text-xs text-gray-400 mt-0.5">Link válido por 24 horas</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Compartilhe com seus alunos</p>
                   </div>
                 </div>
                 <button onClick={() => setShowShareModal(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors">
@@ -3696,7 +3698,7 @@ const App: React.FC = () => {
                 </button>
                 <button
                   onClick={() => {
-                    const waText = encodeURIComponent(`🎯 Jogue o Show da Lição!\n\nResponda perguntas bíblicas e veja sua pontuação no ranking.\n\n👉 ${shareUrl}\n\n_(Link válido por 24 horas)_`);
+                    const waText = encodeURIComponent(`🎯 Jogue o Show da Lição!\n\nResponda perguntas bíblicas e veja sua pontuação no ranking.\n\n👉 ${shareUrl}`);
                     window.open(`https://wa.me/?text=${waText}`, '_blank');
                   }}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-normal text-sm active:scale-95 shadow-lg"
@@ -3898,7 +3900,7 @@ const App: React.FC = () => {
                 <p className="text-white/50 text-sm leading-relaxed">
                   {noToken
                     ? 'Solicite um novo link ao professor.'
-                    : 'Os links do jogo são válidos por 24 horas. Solicite um novo link ao professor.'}
+                    : 'Este link não é mais válido. Solicite um novo link ao professor.'}
                 </p>
               </div>
             ) : validating || dbQuestions.length === 0 ? (
@@ -4383,7 +4385,7 @@ const App: React.FC = () => {
 
     const handleFinalize = async () => {
       if (gameState.isSoloMode) {
-        await saveRankingEntries(gameState.teams);
+        await saveRankingEntries(gameState.teams, isSharedSoloGame);
       }
       window.location.reload();
     };
