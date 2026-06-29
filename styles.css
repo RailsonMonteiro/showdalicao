@@ -43,7 +43,11 @@
 :root {
   --ui-font-size: clamp(13px, 0.34vw + 12px, 18px);
   --control-font-size: clamp(0.82rem, 0.22vw + 0.78rem, 1.05rem);
-  --control-min-height: clamp(2.25rem, 4.8vw, 3.2rem);
+  --control-min-height: clamp(2.75rem, 4.8vw, 3.2rem);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 html {
@@ -84,6 +88,8 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   margin: 0;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-font-smoothing: antialiased;
@@ -137,6 +143,228 @@ html::-webkit-scrollbar-thumb,
   background-color: rgba(120, 120, 120, 0.55);
 }
 
+/* ─── Range inputs estilizados ─── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #219ebc;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.22);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: #219ebc;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+/* ─── Botão principal do setup (Quiz ES) ─── */
+.btn-quiz-primary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 1.25rem;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.btn-quiz-primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255,255,255,0.22) 0%, transparent 60%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.btn-quiz-primary::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -30%;
+  width: 60%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  transform: skewX(-20deg);
+  animation: btn-shine 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.btn-quiz-primary:hover {
+  transform: translateY(-3px) scale(1.03);
+  filter: brightness(1.1);
+}
+
+.btn-quiz-primary:active {
+  transform: translateY(0) scale(0.97);
+  filter: brightness(0.95);
+}
+
+@keyframes btn-shine {
+  0%, 100% { left: -80%; opacity: 0; }
+  30% { opacity: 1; }
+  60% { left: 130%; opacity: 0; }
+}
+
+/* ─── Botões de resposta ─── */
+.answer-btn {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.answer-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 100%);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.answer-btn:not(:disabled):hover {
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  z-index: 2;
+}
+
+.answer-btn:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
+}
+
+.answer-btn.selected {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 3px #16a34a, 0 8px 24px rgba(22,163,74,0.22);
+}
+
+.answer-btn.correct-reveal {
+  animation: correct-pulse 0.5s ease forwards;
+}
+
+.answer-btn.wrong-reveal {
+  animation: wrong-shake 0.45s ease forwards;
+}
+
+@keyframes correct-pulse {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+@keyframes wrong-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* ─── Overlay de resultado animado ─── */
+.result-overlay-enter {
+  animation: result-slide-up 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes result-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Ícone de resultado (certo/errado) ─── */
+.result-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  animation: icon-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+}
+
+@keyframes icon-pop {
+  0% { transform: scale(0) rotate(-15deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+/* ─── Placar animado ─── */
+.score-badge-active {
+  animation: score-glow 2s ease-in-out infinite;
+}
+
+@keyframes score-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(255,255,255,0); }
+}
+
+/* ─── Timer circular countdown ─── */
+.timer-countdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-countdown.urgent {
+  animation: timer-urgent 0.5s ease-in-out infinite;
+}
+
+@keyframes timer-urgent {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+/* ─── Loader / spinner ─── */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 4px solid rgba(255,255,255,0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── Confetes ─── */
 .confetti-piece {
   position: absolute;
   top: 50%;
@@ -177,31 +405,24 @@ html::-webkit-scrollbar-thumb,
     transform: translate3d(0, 0, 0) rotate(0deg) scale(0);
     opacity: 1;
   }
-  /* Explosão inicial rápida */
   12% {
     opacity: 1;
     transform: translate3d(var(--x), var(--y), 0) rotate(var(--rot)) scale(1.3);
   }
-  /* Início da flutuação */
   35% {
     transform: translate3d(calc(var(--x) * 1.1), calc(var(--y) * 0.8), 0) rotate(calc(var(--rot) * 1.5)) scale(1);
   }
-  /* Balanço lateral 1 */
   55% {
     transform: translate3d(calc(var(--x) * 0.9), calc(var(--y-end) * 0.4), 0) rotate(calc(var(--rot) * 2)) scale(0.9);
   }
-  /* Balanço lateral 2 */
   75% {
     transform: translate3d(calc(var(--x) * 1.1), calc(var(--y-end) * 0.7), 0) rotate(calc(var(--rot) * 3)) scale(0.8);
   }
-  /* Final da queda suave */
   100% {
     transform: translate3d(var(--x), var(--y-end), 0) rotate(calc(var(--rot) * 5)) scale(0.6);
     opacity: 0;
   }
 }
-
-
 
 .firework-piece {
   position: absolute;
@@ -237,11 +458,7 @@ html::-webkit-scrollbar-thumb,
     opacity: 0;
     transform: translate3d(0, 0, 0) rotate(0deg) scale(0.8);
   }
-
-  12% {
-    opacity: 1;
-  }
-
+  12% { opacity: 1; }
   100% {
     opacity: 0;
     transform: translate3d(var(--confetti-x, 60px), var(--confetti-y, -260px), 0) rotate(var(--confetti-rot, 180deg)) scale(1);
@@ -253,11 +470,7 @@ html::-webkit-scrollbar-thumb,
     opacity: 0;
     transform: translate3d(0, 0, 0) rotate(0deg) scale(0.35);
   }
-
-  10% {
-    opacity: 1;
-  }
-
+  10% { opacity: 1; }
   100% {
     opacity: 0;
     transform: translate3d(var(--fw-x, 120px), var(--fw-y, -260px), 0) rotate(var(--fw-rot, 180deg)) scale(1.15);
@@ -265,51 +478,132 @@ html::-webkit-scrollbar-thumb,
 }
 
 @keyframes update-progress-slide {
-  0% {
-    transform: translateX(-120%);
-  }
-
-  100% {
-    transform: translateX(260%);
-  }
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(260%); }
 }
 
 @keyframes startup-sweep {
-  0% {
-    transform: translateX(-120%);
-    opacity: 0.35;
-  }
-
-  50% {
-    opacity: 1;
-  }
-
-  100% {
-    transform: translateX(340%);
-    opacity: 0.35;
-  }
+  0% { transform: translateX(-120%); opacity: 0.35; }
+  50% { opacity: 1; }
+  100% { transform: translateX(340%); opacity: 0.35; }
 }
 
-/* Responsive Utilities */
+/* ─── Fade in geral ─── */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in-up {
+  animation: fade-in-up 0.4s ease forwards;
+}
+
+/* ─── Ranking: entrada stagger da lista ─── */
+@keyframes rank-entry {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.rank-entry {
+  animation: rank-entry 0.35s ease forwards;
+  opacity: 0;
+}
+
+/* ─── Ranking: shimmer dourado no 1º lugar ─── */
+@keyframes gold-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.gold-shimmer {
+  background: linear-gradient(
+    90deg,
+    #fef3c7 0%,
+    #fde68a 20%,
+    #fff9e6 40%,
+    #fbbf24 60%,
+    #fde68a 80%,
+    #fef3c7 100%
+  );
+  background-size: 200% auto;
+  animation: gold-shimmer 3s linear infinite;
+}
+
+/* ─── Ranking: pódio bounce de entrada ─── */
+@keyframes podium-rise {
+  0%   { opacity: 0; transform: translateY(30px) scale(0.92); }
+  70%  { transform: translateY(-4px) scale(1.02); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.podium-card {
+  animation: podium-rise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  opacity: 0;
+}
+
+/* ─── Ranking: glow dourado ─── */
+@keyframes gold-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0.4), 0 8px 32px rgba(251,191,36,0.25); }
+  50%       { box-shadow: 0 0 0 6px rgba(251,191,36,0), 0 8px 32px rgba(251,191,36,0.5); }
+}
+
+.gold-glow {
+  animation: gold-glow 2.5s ease-in-out infinite;
+}
+
+/* ─── Ranking: barra de score ─── */
+@keyframes score-bar-fill {
+  from { width: 0%; }
+}
+
+.score-bar {
+  animation: score-bar-fill 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* ─── Pulsação sutil para o logo ─── */
+@keyframes logo-float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+.logo-float {
+  animation: logo-float 4s ease-in-out infinite;
+}
+
+/* ─── Card de pergunta destacada ─── */
+.question-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.question-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, transparent 0%, var(--card-accent, #8ecae6) 50%, transparent 100%);
+  opacity: 0.6;
+}
+
+/* ─── Responsive Utilities ─── */
 @media (max-width: 768px) {
   :root {
     --ui-font-size: 14px;
   }
-  
+
   .settings-scroll::-webkit-scrollbar {
     width: 4px;
   }
-  
-  /* Garantir que inputs não deem zoom automático no iOS */
+
   input, select, textarea {
     font-size: 16px !important;
   }
 }
 
-/* Fix for small phones */
 @media (max-width: 380px) {
   :root {
     --ui-font-size: 13px;
   }
 }
-

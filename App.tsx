@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { questions } from './questions';
 import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question, RankingEntry } from './types';
 import { supabase } from './supabaseClient';
 import expandIcon from './img/expandir.svg';
@@ -7,9 +6,10 @@ import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
 import updateIcon from './img/Atualizar.svg';
 import showDaLicaoLogo from './img/Show da Lição.webp';
-import goldMedal from './img/medal_ouro.png';
-import silverMedal from './img/medal_prata.png';
-import bronzeMedal from './img/medal_bronze.png';
+import goldMedal from './img/1 lugar.webp';
+import silverMedal from './img/2 lugar.webp';
+import bronzeMedal from './img/3 lugar.webp';
+import trofeuIcon from './img/Troféu.webp';
 
 import openingAudioTrack from './Abertura.mp3';
 import tenSecondsAudioTrack from './10s.mp3';
@@ -379,7 +379,25 @@ const App: React.FC = () => {
   const [tenSecondsRemaining, setTenSecondsRemaining] = useState(10);
   const [showTeamNamesModal, setShowTeamNamesModal] = useState(false);
   const [showRanking, setShowRanking] = useState(false);
+  const [dbQuestions, setDbQuestions] = useState<Question[]>([]);
+  const [dbLoading, setDbLoading] = useState(false);
+  const [dbSaving, setDbSaving] = useState(false);
+  const [qSearch, setQSearch] = useState('');
+  const [showQModal, setShowQModal] = useState(false);
+  type QDraft = { id?: number; topic: string; question: string; optA: string; optB: string; optC: string; optD: string; answer: QuestionOptionKey; sourceType: 'licao' | 'biblia'; sourceRef: string; points: number };
+  const emptyDraft = (): QDraft => ({ topic:'', question:'', optA:'', optB:'', optC:'', optD:'', answer:'A', sourceType:'licao', sourceRef:'', points:1 });
+  const [qDraft, setQDraft] = useState<QDraft>(emptyDraft());
+  const [qDeleteId, setQDeleteId] = useState<number | null>(null);
   const [showModeSelection, setShowModeSelection] = useState(false);
+  const [showLoginScreen, setShowLoginScreen] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
+  const returnToDashboard = React.useRef(false);
+  const [loginMode, setLoginMode] = useState<'login' | 'register' | 'forgot'>('login');
+  const [loginConfirmPassword, setLoginConfirmPassword] = useState('');
+  const [loginName, setLoginName] = useState('');
+  const [loginMessage, setLoginMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showLoginConfirmPassword, setShowLoginConfirmPassword] = useState(false);
   const [showSoloNameModal, setShowSoloNameModal] = useState(false);
   const [draftSoloName, setDraftSoloName] = useState('');
   const [rankings, setRankings] = useState<RankingEntry[]>([]);
@@ -411,7 +429,6 @@ const App: React.FC = () => {
   const [draftTeam1Name, setDraftTeam1Name] = useState('');
   const [draftTeam2Name, setDraftTeam2Name] = useState('');
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[]>([]);
-  const [activeQuestions, setActiveQuestions] = useState<Question[]>(questions);
   const [resolvedQuestion, setResolvedQuestion] = useState<Question | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
   const [selectedOption, setSelectedOption] = useState<QuestionOptionKey | null>(null);
@@ -457,6 +474,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchRankings();
+    fetchDbQuestions();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsAdmin(!!session);
@@ -470,24 +488,159 @@ const App: React.FC = () => {
   }, []);
 
   const handleLogin = async () => {
+    setLoginMessage(null);
+    if (!loginEmail || !loginPassword) {
+      setLoginMessage({ type: 'error', text: 'Preencha e-mail e senha.' });
+      return;
+    }
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email: loginEmail,
         password: loginPassword
       });
       if (error) throw error;
       setIsAdmin(true);
       setShowLoginModal(false);
+      setShowLoginScreen(false);
       setLoginEmail('');
       setLoginPassword('');
+      setLoginMessage(null);
+      setShowDashboard(true);
+      fetchDbQuestions();
     } catch (err: any) {
-      alert('Falha no login: ' + err.message);
+      const msg: string = err.message ?? '';
+      if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
+        setLoginMessage({ type: 'error', text: 'E-mail ou senha incorretos.' });
+      } else if (msg.includes('Email not confirmed')) {
+        setLoginMessage({ type: 'error', text: 'Confirme seu e-mail antes de entrar. Verifique sua caixa de entrada.' });
+      } else if (msg.includes('Too many requests')) {
+        setLoginMessage({ type: 'error', text: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' });
+      } else {
+        setLoginMessage({ type: 'error', text: 'Falha ao entrar: ' + msg });
+      }
     }
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsAdmin(false);
+  };
+
+  const handleRegister = async () => {
+    setLoginMessage(null);
+    if (!loginName.trim()) {
+      setLoginMessage({ type: 'error', text: 'Informe seu nome de usuário.' });
+      return;
+    }
+    if (!loginEmail || !loginPassword) {
+      setLoginMessage({ type: 'error', text: 'Preencha e-mail e senha.' });
+      return;
+    }
+    if (loginPassword !== loginConfirmPassword) {
+      setLoginMessage({ type: 'error', text: 'As senhas não coincidem.' });
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginMessage({ type: 'error', text: 'A senha deve ter pelo menos 6 caracteres.' });
+      return;
+    }
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: loginEmail,
+        password: loginPassword,
+        options: { data: { name: loginName.trim() } },
+      });
+      if (error) throw error;
+      // Supabase retorna identities vazio quando o e-mail já está cadastrado
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        setLoginMessage({ type: 'error', text: 'Este e-mail já está cadastrado. Tente fazer login.' });
+        return;
+      }
+      setLoginMessage({ type: 'success', text: 'Conta criada com sucesso! Verifique seu e-mail para confirmar o cadastro.' });
+      setLoginEmail('');
+      setLoginPassword('');
+      setLoginConfirmPassword('');
+      setLoginName('');
+    } catch (err: any) {
+      const msg: string = err.message ?? '';
+      if (msg.includes('already registered') || msg.includes('already been registered')) {
+        setLoginMessage({ type: 'error', text: 'Este e-mail já está cadastrado. Tente fazer login.' });
+      } else if (msg.includes('invalid email') || msg.includes('Invalid email')) {
+        setLoginMessage({ type: 'error', text: 'E-mail inválido.' });
+      } else if (msg.includes('Password should be')) {
+        setLoginMessage({ type: 'error', text: 'A senha deve ter pelo menos 6 caracteres.' });
+      } else {
+        setLoginMessage({ type: 'error', text: msg || 'Erro ao criar conta. Tente novamente.' });
+      }
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setLoginMessage(null);
+    if (!loginEmail) {
+      setLoginMessage({ type: 'error', text: 'Informe seu e-mail.' });
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(loginEmail, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      setLoginMessage({ type: 'success', text: 'E-mail de recuperação enviado! Verifique sua caixa de entrada.' });
+    } catch (err: any) {
+      setLoginMessage({ type: 'error', text: err.message ?? 'Erro ao enviar e-mail.' });
+    }
+  };
+
+  const fetchDbQuestions = async () => {
+    setDbLoading(true);
+    const { data, error } = await supabase.from('questions').select('*').order('id', { ascending: true });
+    if (!error && data) {
+      setDbQuestions(data.map((q: any) => ({
+        id: q.id,
+        topic: q.topic ?? '',
+        question: q.question ?? '',
+        options: { A: q.option_a, B: q.option_b, ...(q.option_c ? { C: q.option_c } : {}), ...(q.option_d ? { D: q.option_d } : {}) },
+        answer: q.answer as QuestionOptionKey,
+        source: { type: q.source_type ?? 'licao', reference: q.source_reference ?? '' },
+        points: q.points ?? 1,
+      })));
+    }
+    setDbLoading(false);
+  };
+
+  const handleSaveQuestion = async () => {
+    if (!qDraft.topic.trim() || !qDraft.question.trim() || !qDraft.optA.trim() || !qDraft.optB.trim()) {
+      alert('Preencha ao menos: tópico, pergunta, opção A e opção B.');
+      return;
+    }
+    setDbSaving(true);
+    const payload = {
+      topic: qDraft.topic.trim(),
+      question: qDraft.question.trim(),
+      option_a: qDraft.optA.trim(),
+      option_b: qDraft.optB.trim(),
+      option_c: qDraft.optC.trim() || null,
+      option_d: qDraft.optD.trim() || null,
+      answer: qDraft.answer,
+      source_type: qDraft.sourceType,
+      source_reference: qDraft.sourceRef.trim(),
+      points: qDraft.points,
+    };
+    if (qDraft.id) {
+      await supabase.from('questions').update(payload).eq('id', qDraft.id);
+    } else {
+      await supabase.from('questions').insert(payload);
+    }
+    setDbSaving(false);
+    setShowQModal(false);
+    fetchDbQuestions();
+  };
+
+  const handleDeleteQuestion = async (id: number) => {
+    await supabase.from('questions').delete().eq('id', id);
+    setQDeleteId(null);
+    fetchDbQuestions();
   };
 
   useEffect(() => {
@@ -1586,7 +1739,7 @@ const App: React.FC = () => {
       explanationType: null,
       lifelineResult: null,
       hiddenOptions: [],
-      shuffledQuestions: shuffleArray(activeQuestions),
+      shuffledQuestions: shuffleArray(dbQuestions),
       isSoloMode: isSolo
     }));
   };
@@ -1747,8 +1900,13 @@ const App: React.FC = () => {
       explanationType: null,
       lifelineResult: null,
       hiddenOptions: [],
-      shuffledQuestions: []
+      shuffledQuestions: [],
+      isSoloMode: false
     });
+    if (returnToDashboard.current) {
+      returnToDashboard.current = false;
+      setShowDashboard(true);
+    }
   };
 
   const updateTeamName = (index: number, name: string) => {
@@ -2202,22 +2360,22 @@ const App: React.FC = () => {
   ) : null;
 
   const loginModal = showLoginModal && (
-    <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-4 p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
+    <div className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+      <div className="w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl border-t-4 sm:border-4 p-5 sm:p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
         <p className="text-sm uppercase font-black mb-4">Login Administrador</p>
         <div className="space-y-4 mb-6">
           <input
             type="email"
             value={loginEmail}
             onChange={(e) => setLoginEmail(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
             placeholder="E-mail"
           />
           <input
             type="password"
             value={loginPassword}
             onChange={(e) => setLoginPassword(e.target.value)}
-            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
             placeholder="Senha"
           />
         </div>
@@ -2241,462 +2399,345 @@ const App: React.FC = () => {
   );
 
   if (showSettings && gameState.mode !== 'playing') {
-    const settingsZoomStyle: React.CSSProperties = {
-      zoom: `${setupZoomLevel}%`
-    };
+    const NAV_ITEMS = [
+      { id: 'interface', label: 'Interface', icon: 'fi-rr-computer' },
+      { id: 'fontes',    label: 'Fontes',    icon: 'fi-rr-text'     },
+    ] as const;
 
     return (
-      <div className="min-h-[100dvh] h-[100dvh] flex items-center justify-center p-0 md:p-8 overflow-y-auto settings-scroll">
-        <div className="w-full h-full md:w-[95vw] md:h-[95dvh] max-w-none flex items-center justify-center" style={settingsZoomStyle}>
-          <div className="w-full h-full bg-white md:rounded-[2rem] p-4 md:p-8 shadow-2xl md:border-4 flex flex-col" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: 'clamp(12pt, 1.5vw, 15pt)' }}>
-            <div className="flex items-center justify-between gap-4 mb-6 md:mb-8">
-              <h2 className="text-xl md:text-2xl font-black uppercase leading-none flex items-center gap-2 md:gap-2">
-                <i className="fi fi-rr-menu-burger icon-font-black text-[20px] md:text-[24px] leading-none" aria-hidden="true" />
-                <span className="hidden md:inline translate-y-[1px]">Configurações</span>
-              </h2>
-              <div className="flex items-center gap-2 md:gap-3">
-                <button
-                  onClick={handleApplyFontChanges}
-                  disabled={!hasPendingFontChanges}
-                  className="px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-white hover:text-green-300 font-black uppercase text-[10px] md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: activeTheme.primary }}
-                >
-                  Aplicar
-                </button>
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="text-white hover:text-green-300 font-black py-2 md:py-2.5 px-4 md:px-5 rounded-xl text-[10px] md:text-sm uppercase shadow-lg transition-all duration-200 ease-out hover:brightness-110"
-                  style={{ backgroundColor: activeTheme.primary }}
-                >
-                  Voltar
-                </button>
-              </div>
+      <div className="fixed inset-0 z-[120] flex flex-col" style={{ fontFamily: 'Arial Local, Arial, sans-serif', background: '#f1f5f9' }}>
+
+        {/* ── Header ── */}
+        <div className="flex-shrink-0 flex items-center justify-between px-5 sm:px-8 py-4 shadow-sm" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+              <i className="fi fi-rr-settings text-white text-base leading-none" aria-hidden="true" />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)] gap-4 md:gap-6 flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
-              <aside className="bg-gray-50 rounded-2xl p-4 md:p-5 flex flex-row md:flex-col gap-2 md:gap-2 overflow-x-auto md:overflow-x-visible shrink-0">
-                <p className="hidden md:block text-xs uppercase font-black text-gray-500 mb-4 tracking-widest">Menu</p>
-                <div className="space-y-2">
-                  {[
-                    { id: 'interface', label: 'Interface' },
-                    { id: 'perguntas', label: 'Perguntas' },
-                    { id: 'fontes', label: 'Fontes' }
-                  ].map((item) => {
-                    const isActive = settingsSection === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setSettingsSection(item.id as 'interface' | 'perguntas' | 'fontes')}
-                        className={`whitespace-nowrap md:w-full text-left px-4 py-2.5 md:py-3 rounded-xl font-black uppercase text-[10px] md:text-sm transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
-                        style={isActive
-                          ? {
-                              color: activeTheme.primary,
-                              backgroundColor: hexToRgba(activeTheme.accent, 0.45),
-                              borderColor: hexToRgba(activeTheme.primary, 0.18)
-                            }
-                          : {
-                              color: '#4b5563',
-                              backgroundColor: 'rgba(255,255,255,0.72)',
-                              borderColor: 'rgba(255,255,255,0.85)'
-                            }}
-                      >
-                        {item.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="md:mt-auto md:pt-6 md:border-t border-gray-200/50 mt-0">
-                  <button
-                    onClick={isAdmin ? handleLogout : () => setShowLoginModal(true)}
-                    className={`whitespace-nowrap md:w-full text-left px-4 py-3 rounded-xl font-black uppercase text-[10px] md:text-xs transition-all border flex items-center gap-2 md:gap-3 ${
-                      isAdmin 
-                        ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
-                        : 'bg-white/60 text-gray-500 border-gray-200 hover:bg-white'
-                    }`}
-                  >
-                    <i className={`fi ${isAdmin ? 'fi-rr-sign-out-alt' : 'fi-rr-user-lock'} text-sm md:text-base`} aria-hidden="true" />
-                    <span className="hidden xs:inline">{isAdmin ? 'Sair Admin' : 'Admin'}</span>
-                  </button>
-                </div>
-              </aside>
-
-              <section className="bg-gray-50 rounded-2xl p-4 md:p-6 overflow-y-auto settings-scroll h-full min-h-0">
-                {settingsSection === 'interface' ? (
-                  <div className="text-left">
-                    <p className="text-sm uppercase font-black mb-3">Som e áudio</p>
-                    <p className="text-gray-700 font-semibold mb-5">Configure os níveis de volume do app.</p>
-
-                    <div className="space-y-4 mb-7">
-                      <div className="rounded-xl bg-white/85 p-4 shadow-sm border border-white/70">
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                          <p className="font-black uppercase text-sm">Volume de Música</p>
-                          <span className="text-sm font-black" style={{ color: activeTheme.primary }}>{musicVolume}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={musicVolume}
-                          onChange={(e) => setMusicVolume(clamp(Number(e.target.value), 0, 100))}
-                          className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-                        />
-                      </div>
-
-                      <div className="rounded-xl bg-white/85 p-4 shadow-sm border border-white/70">
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                          <p className="font-black uppercase text-sm">Volume de efeito</p>
-                          <span className="text-sm font-black" style={{ color: activeTheme.primary }}>{effectsVolume}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={effectsVolume}
-                          onChange={(e) => setEffectsVolume(clamp(Number(e.target.value), 0, 100))}
-                          className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-                        />
-                        <p className="text-xs font-semibold text-gray-500 mt-2">Será usado para os efeitos sonoros futuramente.</p>
-                      </div>
-
-                      <div className="rounded-xl bg-white/85 p-4 shadow-sm border border-white/70">
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                          <p className="font-black uppercase text-sm">Volume do time</p>
-                          <span className="text-sm font-black" style={{ color: activeTheme.primary }}>{teamClockVolume}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={teamClockVolume}
-                          onChange={(e) => setTeamClockVolume(clamp(Number(e.target.value), 0, 100))}
-                          className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-                        />
-                        <p className="text-xs font-semibold text-gray-500 mt-2">Será usado para o relógio das equipes futuramente.</p>
-                      </div>
-                    </div>
-
-                    <p className="text-sm uppercase font-black mb-3">Temas e Cores</p>
-                    <p className="text-gray-700 font-semibold mb-5">Escolha uma combinação de cores para aplicar no aplicativo.</p>
-                    <div className="space-y-4">
-                      {COLOR_THEMES.map((theme) => {
-                        const isSelected = theme.id === themeId;
-                        return (
-                          <button
-                            key={theme.id}
-                            onClick={() => setThemeId(theme.id)}
-                            className={`w-full rounded-xl border px-4 py-4 text-left transition-all duration-200 ease-out ${isSelected ? 'shadow-md scale-[1.01]' : 'hover:bg-white/70'}`}
-                            style={{ borderColor: isSelected ? theme.primary : 'transparent', backgroundColor: isSelected ? 'rgba(255,255,255,0.9)' : 'transparent' }}
-                          >
-                            <div className="flex items-center justify-between gap-4">
-                              <div>
-                                <p className="font-black uppercase text-sm" style={{ color: theme.primary }}>{theme.name}</p>
-                                <p className="text-xs font-semibold text-gray-500 mt-1">{isSelected ? 'Selecionada' : 'Clique para selecionar'}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {[theme.gradientStart, theme.gradientEnd, theme.primary, theme.accent].map((color, idx) => (
-                                  <span
-                                    key={`${theme.id}-${idx}`}
-                                    className="w-5 h-5 rounded-full shadow"
-                                    style={{ backgroundColor: color }}
-                                    aria-hidden="true"
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-
-                      <div
-                        className={`w-full rounded-xl border px-4 py-4 text-left transition-all duration-200 ease-out ${themeId === 'custom' ? 'shadow-md scale-[1.01]' : 'hover:bg-white/70'}`}
-                        style={{ borderColor: themeId === 'custom' ? activeTheme.primary : 'transparent', backgroundColor: themeId === 'custom' ? 'rgba(255,255,255,0.9)' : 'transparent' }}
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <p className="font-black uppercase text-sm" style={{ color: activeTheme.primary }}>Personalizada</p>
-                            <p className="text-xs font-semibold text-gray-500 mt-1">Escolha a cor que quiser</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {[mixHex(customColor, '#ffffff', 0.55), customColor, mixHex(customColor, '#ffffff', 0.35), mixHex(customColor, '#000000', 0.25)].map((color, idx) => (
-                              <span
-                                key={`custom-${idx}`}
-                                className="w-5 h-5 rounded-full shadow"
-                                style={{ backgroundColor: color }}
-                                aria-hidden="true"
-                              />
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mt-4 flex items-center gap-3">
-                          <input
-                            type="color"
-                            value={customColor}
-                            onChange={(e) => {
-                              setCustomColor(normalizeHex(e.target.value));
-                              setThemeId('custom');
-                            }}
-                            className="w-12 h-9 rounded-lg cursor-pointer border-0 bg-transparent"
-                            aria-label="Selecionar cor personalizada"
-                          />
-                          <button
-                            onClick={() => setThemeId('custom')}
-                            className="px-4 py-2 rounded-lg text-white font-bold text-xs md:text-sm"
-                            style={{ backgroundColor: customColor }}
-                          >
-                            Usar Cor Personalizada
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : settingsSection === 'perguntas' ? (
-                  <div className="text-left flex h-full flex-col">
-                    <div>
-                      <p className="text-sm uppercase font-black mb-3">Perguntas</p>
-                      <p className="text-gray-700 font-semibold mb-4">Escolha como deseja gerar suas perguntas.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-                      <button
-                        onClick={() => setQuestionGenerationMode('manual')}
-                        className={`rounded-xl px-4 py-2.5 font-black uppercase text-xs md:text-sm transition-all border ${questionGenerationMode === 'manual' ? 'shadow-md' : 'hover:bg-white'}`}
-                        style={questionGenerationMode === 'manual'
-                          ? {
-                              color: activeTheme.primary,
-                              backgroundColor: hexToRgba(activeTheme.accent, 0.45),
-                              borderColor: hexToRgba(activeTheme.primary, 0.18)
-                            }
-                          : {
-                              color: '#4b5563',
-                              backgroundColor: 'rgba(255,255,255,0.72)',
-                              borderColor: 'rgba(255,255,255,0.85)'
-                            }}
-                      >
-                        Manual
-                      </button>
-                      <button
-                        onClick={() => setQuestionGenerationMode('ia')}
-                        className={`rounded-xl px-4 py-2.5 font-black uppercase text-xs md:text-sm transition-all border ${questionGenerationMode === 'ia' ? 'shadow-md' : 'hover:bg-white'}`}
-                        style={questionGenerationMode === 'ia'
-                          ? {
-                              color: activeTheme.primary,
-                              backgroundColor: hexToRgba(activeTheme.accent, 0.45),
-                              borderColor: hexToRgba(activeTheme.primary, 0.18)
-                            }
-                          : {
-                              color: '#4b5563',
-                              backgroundColor: 'rgba(255,255,255,0.72)',
-                              borderColor: 'rgba(255,255,255,0.85)'
-                            }}
-                      >
-                        IA
-                      </button>
-                    </div>
-
-                    {questionGenerationMode === 'manual' ? (
-                      <>
-                        <div className="grid gap-4 flex-1 content-start md:grid-cols-2">
-                          <div className="rounded-xl bg-white/80 p-4 shadow-sm border border-white/70">
-                            <p className="font-black uppercase text-sm mb-2">Quantidade de perguntas</p>
-                            <input
-                              type="number"
-                              min={MIN_QUESTION_COUNT}
-                              max={30}
-                              value={questionCount}
-                              onFocus={selectNumericInputValue}
-                              onClick={selectNumericInputValue}
-                              onChange={(e) => setQuestionCount(clamp(Number(e.target.value) || 1, 1, 30))}
-                              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-bold text-gray-700 outline-none"
-                            />
-                            {questionCount < MIN_QUESTION_COUNT && (
-                              <p className="mt-2 text-xs font-black text-red-600">A quantidade mínima de perguntas é {MIN_QUESTION_COUNT}.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded-xl bg-white/80 p-4 shadow-sm border border-white/70">
-                            <p className="font-black uppercase text-sm mb-2">Quantidade de opções</p>
-                            <input
-                              type="number"
-                              min={2}
-                              max={6}
-                              value={optionsPerQuestion}
-                              onFocus={selectNumericInputValue}
-                              onClick={selectNumericInputValue}
-                              onChange={(e) => setOptionsPerQuestion(clamp(Number(e.target.value) || 2, 2, 6))}
-                              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-bold text-gray-700 outline-none"
-                            />
-                          </div>
-
-                          <div className="rounded-xl bg-white/80 p-4 shadow-sm border border-white/70 md:col-span-2">
-                            <p className="font-black uppercase text-sm mb-2">Pontuação por pergunta</p>
-                            <input
-                              type="number"
-                              min={1}
-                              step={100}
-                              value={pointsPerQuestion}
-                              onFocus={selectNumericInputValue}
-                              onClick={selectNumericInputValue}
-                              onChange={(e) => setPointsPerQuestion(Math.max(1, Math.round(Number(e.target.value) || 1)))}
-                              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-bold text-gray-700 outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={openQuestionBuilder}
-                          disabled={!questionBuilderIsReady}
-                          className="mt-6 inline-flex self-center rounded-2xl px-4 md:px-5 py-3 md:py-4 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={{ backgroundColor: activeTheme.primary }}
-                        >
-                          Gerar perguntas
-                        </button>
-                      </>
-                    ) : (
-                      <div className="rounded-xl bg-white/85 p-5 shadow-sm border border-white/70 space-y-4">
-                        <p className="font-black uppercase text-sm mb-1" style={{ color: activeTheme.primary }}>IA</p>
-                        <p className="text-xs font-semibold text-gray-500">
-                          Use o botão abaixo para tirar fotos ou importar várias imagens da galeria.
-                          A IA vai ler as imagens e montar as perguntas automaticamente.
-                        </p>
-                        <div className="mt-4 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-                          <button
-                            onClick={openQuestionFilePicker}
-                            disabled={aiGenerationBusy}
-                            className="inline-flex w-full sm:w-[220px] items-center justify-center rounded-2xl px-5 py-3 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ backgroundColor: activeTheme.primary }}
-                          >
-                            {aiGenerationBusy ? 'Processando imagens...' : (
-                              <>
-                                <span className="md:hidden">Imagens</span>
-                                <span className="hidden md:inline">Imagens</span>
-                              </>
-                            )}
-                          </button>
-                          <button
-                            onClick={() => void handleGenerateAiFromSelectedImages()}
-                            disabled={aiGenerationBusy || selectedImageFiles.length === 0}
-                            className="inline-flex w-full sm:w-[220px] items-center justify-center rounded-2xl px-5 py-3 text-white hover:text-green-300 font-black uppercase text-xs md:text-sm shadow-lg transition-all duration-200 ease-out hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ backgroundColor: activeTheme.primary }}
-                          >
-                            Gerar com IA
-                          </button>
-                        </div>
-                        {selectedImageFiles.length > 0 && (
-                          <p className="mt-3 text-xs font-black text-gray-700 text-center">{selectedImageFiles.length} imagem(ns) selecionada(s).</p>
-                        )}
-                        {aiGenerationError && (
-                          <p className="text-xs font-black text-red-600">{aiGenerationError}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-left">
-                    <p className="text-sm uppercase font-black mb-3">Fontes</p>
-                    <p className="text-gray-700 font-semibold mb-5">Defina fonte e tamanho para Pergunta e Respostas.</p>
-
-                    <div className="space-y-5">
-                      <div className="rounded-xl bg-white/85 p-4 shadow-sm">
-                        <p className="font-black uppercase text-sm mb-3">Pergunta</p>
-                        <div className="grid grid-cols-1 md:grid-cols-[140px_minmax(0,1fr)] gap-3 items-center mb-4">
-                          <label className="text-sm font-black uppercase text-gray-600">Fonte:</label>
-                          <select
-                            value={draftQuestionFontId}
-                            onChange={(e) => setDraftQuestionFontId(e.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-semibold text-gray-700 outline-none"
-                          >
-                            {FONT_OPTIONS.map((font) => (
-                              <option key={font.id} value={font.id}>{font.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-[140px_minmax(0,1fr)] gap-3 items-center">
-                          <label className="text-sm font-black uppercase text-gray-600">Tamanho:</label>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="range"
-                              min={MIN_FONT_SIZE_PT}
-                              max={MAX_FONT_SIZE_PT}
-                              step={0.5}
-                              value={draftQuestionFontSize}
-                              onChange={(e) => setDraftQuestionFontSize(clamp(Number(e.target.value), MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT))}
-                              className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-                            />
-                            <span className="min-w-16 text-right text-sm font-black" style={{ color: activeTheme.primary }}>{draftQuestionFontSize.toFixed(1)} pt</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-white/85 p-4 shadow-sm">
-                        <p className="font-black uppercase text-sm mb-3">Respostas</p>
-                        <div className="grid grid-cols-1 md:grid-cols-[140px_minmax(0,1fr)] gap-3 items-center mb-4">
-                          <label className="text-sm font-black uppercase text-gray-600">Fonte:</label>
-                          <select
-                            value={draftAnswerFontId}
-                            onChange={(e) => setDraftAnswerFontId(e.target.value)}
-                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 font-semibold text-gray-700 outline-none"
-                          >
-                            {FONT_OPTIONS.map((font) => (
-                              <option key={font.id} value={font.id}>{font.label}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-[140px_minmax(0,1fr)] gap-3 items-center">
-                          <label className="text-sm font-black uppercase text-gray-600">Tamanho:</label>
-                          <div className="flex items-center gap-3">
-                            <input
-                              type="range"
-                              min={MIN_FONT_SIZE_PT}
-                              max={MAX_FONT_SIZE_PT}
-                              step={0.5}
-                              value={draftAnswerFontSize}
-                              onChange={(e) => setDraftAnswerFontSize(clamp(Number(e.target.value), MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT))}
-                              className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-200"
-                            />
-                            <span className="min-w-16 text-right text-sm font-black" style={{ color: activeTheme.primary }}>{draftAnswerFontSize.toFixed(1)} pt</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-white p-4 md:p-5 shadow-sm border border-gray-100">
-                        <p className="font-black uppercase text-sm mb-2" style={{ color: activeTheme.primary }}>Prévia na Tela de Perguntas</p>
-                        <p className="text-xs text-gray-500 font-semibold mb-4">Ajuste as barras para ver o resultado em tempo real.</p>
-
-                        <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 md:p-5">
-                          <h4
-                            className="text-2xl md:text-3xl leading-tight text-gray-800 mb-5"
-                            style={{ fontFamily: previewQuestionFontFamily, fontSize: `${draftQuestionFontSize}pt` }}
-                          >
-                            Qual a principal mensagem da lição estudada hoje?
-                          </h4>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {[
-                              'Confiar em Deus nas decisões diárias',
-                              'Nunca ajudar quem precisa',
-                              'Ignorar os ensinamentos',
-                              'Focar apenas em recompensas'
-                            ].map((previewAnswer, idx) => (
-                              <div key={`preview-answer-${idx}`} className="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                                <span className="text-gray-700" style={{ fontFamily: previewAnswerFontFamily, fontSize: `${draftAnswerFontSize}pt` }}>
-                                  {String.fromCharCode(65 + idx)}) {previewAnswer}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                )}
-              </section>
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.35em] text-white/50 leading-none mb-0.5">Painel</p>
+              <h2 className="text-base font-semibold text-white leading-none">Configurações</h2>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            {settingsSection === 'fontes' && (
+              <button
+                onClick={handleApplyFontChanges}
+                disabled={!hasPendingFontChanges}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${hasPendingFontChanges ? 'text-green-300 hover:text-green-200' : 'text-white/70 hover:text-white'}`}
+              >
+                <i className="fi fi-rr-check leading-none" aria-hidden="true" />
+                Aplicar
+              </button>
+            )}
+            <button
+              onClick={() => setShowSettings(false)}
+              className="w-8 h-8 flex items-center justify-center text-white/60 hover:text-red-300 transition-colors active:scale-90"
+              aria-label="Fechar configurações"
+            >
+              <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Body ── */}
+        <div className="flex flex-col sm:flex-row flex-1 min-h-0">
+
+          {/* Sidebar — horizontal tabs on mobile, vertical on sm+ */}
+          <aside className="flex-shrink-0 bg-white border-b sm:border-b-0 sm:border-r border-gray-200 flex flex-row sm:flex-col sm:w-52 sm:py-4 sm:px-3 overflow-x-auto">
+            <p className="hidden sm:block text-[10px] uppercase tracking-widest text-gray-400 px-3 mb-3">Menu</p>
+            <nav className="flex flex-row sm:flex-col gap-1 flex-1 px-2 sm:px-0 py-2 sm:py-0">
+              {NAV_ITEMS.map(item => {
+                const isActive = settingsSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setSettingsSection(item.id as 'interface' | 'fontes')}
+                    className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm whitespace-nowrap transition-all min-h-[44px]"
+                    style={isActive
+                      ? { background: hexToRgba(activeTheme.primary, 0.1), color: activeTheme.primary }
+                      : { color: '#6b7280' }}
+                  >
+                    <i className={`fi ${item.icon} text-base leading-none`} aria-hidden="true" />
+                    <span className="sm:inline">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          {/* Content */}
+          <section className="flex-1 overflow-y-auto settings-scroll p-4 sm:p-6">
+
+            {/* ── INTERFACE ── */}
+            {settingsSection === 'interface' && (
+              <div className="max-w-2xl space-y-6">
+
+                {/* Som */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                      <i className="fi fi-rr-volume text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Som e Áudio</p>
+                      <p className="text-xs text-gray-400">Configure os níveis de volume</p>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-gray-50 px-5">
+                    {[
+                      { label: 'Música', icon: 'fi-rr-music-note', value: musicVolume, set: setMusicVolume },
+                      { label: 'Efeitos', icon: 'fi-rr-waveform', value: effectsVolume, set: setEffectsVolume },
+                      { label: 'Relógio', icon: 'fi-rr-clock', value: teamClockVolume, set: setTeamClockVolume },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center gap-4 py-4">
+                        <i className={`fi ${item.icon} text-gray-400 text-base leading-none w-5 shrink-0`} aria-hidden="true" />
+                        <span className="text-sm text-gray-600 w-20 shrink-0">{item.label}</span>
+                        <input
+                          type="range" min={0} max={100} step={1} value={item.value}
+                          onChange={e => item.set(clamp(Number(e.target.value), 0, 100))}
+                          className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer bg-gray-200"
+                        />
+                        <span className="text-sm font-medium w-10 text-right" style={{ color: activeTheme.primary }}>{item.value}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Temas */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                      <i className="fi fi-rr-palette text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Tema e Cores</p>
+                      <p className="text-xs text-gray-400">Aparência do aplicativo</p>
+                    </div>
+                  </div>
+                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {COLOR_THEMES.map(theme => {
+                      const isSelected = theme.id === themeId;
+                      return (
+                        <button
+                          key={theme.id}
+                          onClick={() => setThemeId(theme.id)}
+                          className="flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all"
+                          style={{ borderColor: isSelected ? theme.primary : '#e5e7eb', background: isSelected ? hexToRgba(theme.primary, 0.06) : 'white' }}
+                        >
+                          <div className="flex gap-1 shrink-0">
+                            {[theme.gradientStart, theme.primary, theme.accent].map((c, i) => (
+                              <span key={i} className="w-4 h-4 rounded-full" style={{ backgroundColor: c }} />
+                            ))}
+                          </div>
+                          <span className="text-sm font-medium" style={{ color: isSelected ? theme.primary : '#374151' }}>{theme.name}</span>
+                          {isSelected && <i className="fi fi-rr-check ml-auto text-xs leading-none" style={{ color: theme.primary }} />}
+                        </button>
+                      );
+                    })}
+                    <div
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all sm:col-span-2"
+                      style={{ borderColor: themeId === 'custom' ? activeTheme.primary : '#e5e7eb', background: themeId === 'custom' ? hexToRgba(activeTheme.primary, 0.06) : 'white' }}
+                    >
+                      <input
+                        type="color" value={customColor}
+                        onChange={e => { setCustomColor(normalizeHex(e.target.value)); setThemeId('custom'); }}
+                        className="w-8 h-8 rounded-lg cursor-pointer border-0 bg-transparent p-0 shrink-0"
+                        aria-label="Cor personalizada"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Personalizada</span>
+                      <button onClick={() => setThemeId('custom')} className="ml-auto text-xs px-3 py-1.5 rounded-lg text-white transition-all" style={{ backgroundColor: customColor }}>
+                        Usar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── PERGUNTAS ── */}
+            {settingsSection === 'perguntas' && (
+              <div className="max-w-2xl space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                      <i className="fi fi-rr-apps text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Modo de geração</p>
+                      <p className="text-xs text-gray-400">Escolha como gerar perguntas</p>
+                    </div>
+                  </div>
+                  <div className="p-4 grid grid-cols-2 gap-2">
+                    {[{ id: 'manual', label: 'Manual', icon: 'fi-rr-pencil' }, { id: 'ia', label: 'Inteligência Artificial', icon: 'fi-rr-brain' }].map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setQuestionGenerationMode(opt.id as 'manual' | 'ia')}
+                        className="flex items-center gap-2 px-4 py-3 rounded-xl border text-sm transition-all"
+                        style={{ borderColor: questionGenerationMode === opt.id ? activeTheme.primary : '#e5e7eb', background: questionGenerationMode === opt.id ? hexToRgba(activeTheme.primary, 0.06) : 'white', color: questionGenerationMode === opt.id ? activeTheme.primary : '#374151' }}
+                      >
+                        <i className={`fi ${opt.icon} text-base leading-none`} aria-hidden="true" />
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {questionGenerationMode === 'manual' ? (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                        <i className="fi fi-rr-list text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">Configurações do jogo</p>
+                    </div>
+                    <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        { label: 'Qtd. de perguntas', icon: 'fi-rr-interrogation', value: questionCount, min: MIN_QUESTION_COUNT, max: 30, step: 1, set: (v: number) => setQuestionCount(clamp(v, 1, 30)) },
+                        { label: 'Qtd. de opções', icon: 'fi-rr-list', value: optionsPerQuestion, min: 2, max: 6, step: 1, set: (v: number) => setOptionsPerQuestion(clamp(v, 2, 6)) },
+                        { label: 'Pontos por pergunta', icon: 'fi-rr-star', value: pointsPerQuestion, min: 1, max: 1000, step: 100, set: (v: number) => setPointsPerQuestion(Math.max(1, Math.round(v))) },
+                      ].map(field => (
+                        <div key={field.label} className={field.label === 'Pontos por pergunta' ? 'sm:col-span-2' : ''}>
+                          <label className="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5">
+                            <i className={`fi ${field.icon} leading-none`} aria-hidden="true" />
+                            {field.label}
+                          </label>
+                          <input
+                            type="number" min={field.min} max={field.max} step={field.step} value={field.value}
+                            onFocus={selectNumericInputValue} onClick={selectNumericInputValue}
+                            onChange={e => field.set(Number(e.target.value) || field.min)}
+                            className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-700 outline-none focus:border-blue-300 transition-colors"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="px-5 pb-5">
+                      <button
+                        onClick={openQuestionBuilder}
+                        disabled={!questionBuilderIsReady}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                        style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}
+                      >
+                        <i className="fi fi-rr-magic-wand leading-none" aria-hidden="true" />
+                        Gerar perguntas
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                        <i className="fi fi-rr-brain text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">Geração por IA</p>
+                        <p className="text-xs text-gray-400">Importe imagens e gere perguntas automaticamente</p>
+                      </div>
+                    </div>
+                    <div className="p-5 flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={openQuestionFilePicker}
+                        disabled={aiGenerationBusy}
+                        className="flex items-center justify-center gap-2 flex-1 px-5 py-3 rounded-xl text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                        style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}
+                      >
+                        <i className="fi fi-rr-picture leading-none" aria-hidden="true" />
+                        {aiGenerationBusy ? 'Processando...' : 'Selecionar imagens'}
+                      </button>
+                      <button
+                        onClick={() => void handleGenerateAiFromSelectedImages()}
+                        disabled={aiGenerationBusy || selectedImageFiles.length === 0}
+                        className="flex items-center justify-center gap-2 flex-1 px-5 py-3 rounded-xl text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm"
+                        style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}
+                      >
+                        <i className="fi fi-rr-brain leading-none" aria-hidden="true" />
+                        Gerar com IA
+                      </button>
+                    </div>
+                    {selectedImageFiles.length > 0 && (
+                      <p className="px-5 pb-4 text-xs text-gray-500">{selectedImageFiles.length} imagem(ns) selecionada(s).</p>
+                    )}
+                    {aiGenerationError && (
+                      <p className="px-5 pb-4 text-xs text-red-500">{aiGenerationError}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── FONTES ── */}
+            {settingsSection === 'fontes' && (
+              <div className="max-w-2xl space-y-6">
+                {[
+                  { label: 'Pergunta', icon: 'fi-rr-interrogation', fontId: draftQuestionFontId, setFont: setDraftQuestionFontId, size: draftQuestionFontSize, setSize: setDraftQuestionFontSize },
+                  { label: 'Respostas', icon: 'fi-rr-list', fontId: draftAnswerFontId, setFont: setDraftAnswerFontId, size: draftAnswerFontSize, setSize: setDraftAnswerFontSize },
+                ].map(section => (
+                  <div key={section.label} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                        <i className={`fi ${section.icon} text-base leading-none`} style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-800">{section.label}</p>
+                    </div>
+                    <div className="p-5 space-y-4">
+                      <div>
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5">
+                          <i className="fi fi-rr-text leading-none" aria-hidden="true" /> Fonte
+                        </label>
+                        <select
+                          value={section.fontId}
+                          onChange={e => section.setFont(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-700 outline-none focus:border-blue-300 transition-colors"
+                        >
+                          {FONT_OPTIONS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5">
+                          <i className="fi fi-rr-expand leading-none" aria-hidden="true" /> Tamanho
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="range" min={MIN_FONT_SIZE_PT} max={MAX_FONT_SIZE_PT} step={0.5} value={section.size}
+                            onChange={e => section.setSize(clamp(Number(e.target.value), MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT))}
+                            className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer bg-gray-200"
+                          />
+                          <span className="text-sm font-medium w-14 text-right" style={{ color: activeTheme.primary }}>{section.size.toFixed(1)} pt</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Prévia */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.1) }}>
+                      <i className="fi fi-rr-eye text-base leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-800">Prévia</p>
+                      <p className="text-xs text-gray-400">Visualização em tempo real</p>
+                    </div>
+                  </div>
+                  <div className="p-5 bg-gray-50 rounded-b-2xl">
+                    <p className="text-gray-800 leading-snug mb-4" style={{ fontFamily: previewQuestionFontFamily, fontSize: `${draftQuestionFontSize}pt` }}>
+                      Qual a principal mensagem da lição estudada hoje?
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {['Confiar em Deus nas decisões diárias', 'Nunca ajudar quem precisa', 'Ignorar os ensinamentos', 'Focar apenas em recompensas'].map((ans, idx) => (
+                        <div key={idx} className="rounded-xl border border-gray-200 bg-white px-4 py-3">
+                          <span className="text-gray-700" style={{ fontFamily: previewAnswerFontFamily, fontSize: `${draftAnswerFontSize}pt` }}>
+                            {String.fromCharCode(65 + idx)}) {ans}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+          </section>
         </div>
         {showQuestionBuilder && (
           <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 md:p-6 bg-black/60 backdrop-blur-sm">
@@ -2824,68 +2865,770 @@ const App: React.FC = () => {
     );
   }
 
-  if (gameState.mode === 'setup') {
-    return (
-      <div className="flex items-center justify-center min-h-[100dvh] text-white p-4 md:p-6 text-center overflow-y-auto settings-scroll">
-        <div aria-hidden="true" className="pointer-events-none fixed inset-0 overflow-hidden">
-          {SETUP_BACKGROUND_ICONS.map((item, index) => (
+  const rankingOverlay = showRanking && (() => {
+          const top3 = rankings.slice(0, 3);
+          const rest = rankings.slice(3);
+          const maxScore = rankings[0]?.score ?? 1;
+
+          const PODIUM = [
+            { pos: 2, medal: silverMedal, avatarBorder: '#94a3b8', nameColor: '#cbd5e1', scoreColor: '#94a3b8', platformGrad: 'linear-gradient(180deg,#94a3b8 0%,#64748b 100%)', platformH: '90px', delay: '0.15s', goldGlow: false },
+            { pos: 1, medal: goldMedal,   avatarBorder: '#fbbf24', nameColor: '#fde68a', scoreColor: '#fbbf24', platformGrad: 'linear-gradient(180deg,#fbbf24 0%,#d97706 100%)', platformH: '130px', delay: '0s',    goldGlow: true  },
+            { pos: 3, medal: bronzeMedal, avatarBorder: '#fb923c', nameColor: '#fed7aa', scoreColor: '#fb923c', platformGrad: 'linear-gradient(180deg,#f97316 0%,#c2410c 100%)', platformH: '62px',  delay: '0.28s', goldGlow: false },
+          ];
+          const podiumEntries = [top3[1], top3[0], top3[2]];
+
+          return (
+          <div
+            className="fixed inset-0 z-[95] flex flex-col"
+            style={{ fontFamily: 'Arial Local, Arial, sans-serif', background: '#07111f' }}
+          >
             <div
-              key={`${item.label}-${index}`}
-              className="absolute flex items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/90 blur-[0.15px]"
-              style={{
-                top: item.top,
-                left: item.left,
-                width: item.size,
-                height: item.size,
-                opacity: item.opacity,
-                transform: `rotate(${item.rotate})`
-              }}
+              className="relative flex-shrink-0 flex items-center justify-between px-5 sm:px-8 py-4"
+              style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)`, zIndex: 2 }}
             >
-              <i className={`${item.iconClass} text-[2.4rem] md:text-[2.8rem]`} aria-hidden="true" />
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div style={{ position:'absolute', top:'-40%', left:'-10%', width:'45%', height:'200%', background:'rgba(255,255,255,0.07)', transform:'skewX(-18deg)' }} />
+              </div>
+              <div className="flex items-center gap-3 relative z-10">
+                <img src={trofeuIcon} alt="Troféu" className="w-10 h-10 object-contain drop-shadow-lg" />
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.35em] text-white/50 leading-none mb-0.5">Placar Global</p>
+                  <h2 className="text-2xl sm:text-3xl font-black uppercase text-white leading-none" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>Ranking</h2>
+                </div>
+              </div>
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => setShowRanking(false)}
+                  className="w-8 h-8 flex items-center justify-center text-white/60 hover:text-red-400 active:scale-90 transition-colors duration-150"
+                  aria-label="Fechar ranking"
+                >
+                  <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
+                </button>
+              </div>
             </div>
-          ))}
+
+            {rankings.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+                <div className="w-24 h-24 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center mb-6">
+                  <i className="fi fi-rr-trophy text-5xl text-white/15" aria-hidden="true" />
+                </div>
+                <p className="font-black uppercase text-lg text-white/25 mb-2">Nenhum recorde ainda</p>
+                <p className="text-sm text-white/15 font-semibold">Jogue no modo Solo para aparecer aqui</p>
+              </div>
+            ) : (
+              <>
+                <div
+                  className="flex-shrink-0 relative overflow-hidden flex flex-col items-center justify-end pb-0"
+                  style={{ minHeight: 'clamp(200px, 38vh, 380px)', background: 'linear-gradient(180deg, #0d1f3c 0%, #07111f 100%)' }}
+                >
+                  {[
+                    { top:'12%', left:'8%',  s:3, o:0.5 },
+                    { top:'22%', left:'20%', s:2, o:0.3 },
+                    { top:'8%',  left:'38%', s:4, o:0.4 },
+                    { top:'18%', left:'55%', s:2, o:0.35 },
+                    { top:'10%', left:'70%', s:3, o:0.45 },
+                    { top:'25%', left:'82%', s:2, o:0.3 },
+                    { top:'5%',  left:'92%', s:3, o:0.4 },
+                    { top:'30%', left:'46%', s:2, o:0.25 },
+                  ].map((star, si) => (
+                    <div key={si} className="absolute rounded-full pointer-events-none" style={{ top: star.top, left: star.left, width: star.s, height: star.s, background: '#fff', opacity: star.o, boxShadow: `0 0 ${star.s * 2}px ${star.s}px rgba(255,255,255,0.2)` }} />
+                  ))}
+                  <p className="absolute top-4 left-1/2 -translate-x-1/2 text-[10px] font-black uppercase tracking-[0.4em] text-white/30 whitespace-nowrap">— Pódio —</p>
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 pointer-events-none" style={{ width: '55%', height: '60%', background: 'radial-gradient(ellipse at 50% 100%, rgba(251,191,36,0.18) 0%, transparent 70%)' }} />
+                  <div className="relative z-10 w-full max-w-xl mx-auto flex items-end justify-center gap-2 sm:gap-4 px-4">
+                    {PODIUM.map((cfg, podIdx) => {
+                      const entry = podiumEntries[podIdx];
+                      const isGold = cfg.pos === 1;
+                      if (!entry) {
+                        return (
+                          <div key={podIdx} className="flex-1 flex flex-col items-center">
+                            <div className="w-full rounded-t-2xl opacity-20" style={{ height: cfg.platformH, background: cfg.platformGrad }} />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={`podium-${podIdx}`} className={`podium-card flex-1 flex flex-col items-center ${isGold ? 'gold-glow' : ''}`} style={{ animationDelay: cfg.delay }}>
+                          <img src={cfg.medal} alt={`${cfg.pos}º lugar`} className={`object-contain drop-shadow-xl mb-2 ${isGold ? 'w-16 h-16 sm:w-20 sm:h-20' : 'w-12 h-12 sm:w-16 sm:h-16'}`} />
+                          <p className={`font-black uppercase text-center leading-tight truncate w-full px-1 mb-0.5 ${isGold ? 'text-sm sm:text-base' : 'text-xs sm:text-sm'}`} style={{ color: cfg.nameColor }}>{entry.name}</p>
+                          <p className={`font-black tabular-nums leading-none mb-1 ${isGold ? 'text-xl sm:text-2xl' : 'text-base sm:text-lg'}`} style={{ color: cfg.scoreColor }}>{entry.score.toLocaleString('pt-BR')}</p>
+                          <p className="text-[8px] font-black uppercase mb-2" style={{ color: cfg.scoreColor, opacity: 0.55 }}>pts</p>
+                          <div className="w-full rounded-t-2xl flex items-center justify-center" style={{ height: cfg.platformH, background: cfg.platformGrad, boxShadow: isGold ? '0 -6px 28px rgba(251,191,36,0.4)' : 'none' }}>
+                            <span className={`font-black text-white ${isGold ? 'text-2xl' : 'text-lg'}`} style={{ opacity: 0.85, textShadow: '0 2px 6px rgba(0,0,0,0.35)' }}>{cfg.pos}º</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto settings-scroll" style={{ background: '#0b1828' }}>
+                  {rest.length === 0 ? (
+                    <div className="flex items-center justify-center h-full py-10 text-center px-6">
+                      <p className="text-sm text-white/20 font-semibold uppercase tracking-wider">Apenas 3 jogadores no ranking</p>
+                    </div>
+                  ) : (
+                    <div className="px-4 sm:px-6 py-4">
+                      <div className="flex items-center gap-2 mb-3 px-1">
+                        <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.07)' }} />
+                        <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/25 whitespace-nowrap">Classificação Geral</p>
+                        <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.07)' }} />
+                      </div>
+                      <div className="space-y-2">
+                        {rest.map((entry, i) => {
+                          const realPos = i + 4;
+                          const pct = Math.max(4, Math.round((entry.score / maxScore) * 100));
+                          return (
+                            <div key={`rest-${i}`} className="rank-entry flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 hover:bg-white/6" style={{ animationDelay: `${0.04 * i}s`, background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.09)' }}>{realPos}</div>
+                              <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-black text-sm" style={{ background: hexToRgba(activeTheme.primary, 0.22), color: activeTheme.accent, border: `1.5px solid ${hexToRgba(activeTheme.primary, 0.35)}` }}>{entry.name.charAt(0).toUpperCase()}</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                                  <p className="font-black uppercase text-sm text-white/80 truncate leading-none">{entry.name}</p>
+                                  <p className="font-black text-sm tabular-nums leading-none shrink-0" style={{ color: activeTheme.accent }}>{entry.score.toLocaleString('pt-BR')} <span className="text-[9px] font-bold opacity-50">pts</span></p>
+                                </div>
+                                <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.07)' }}>
+                                  <div className="score-bar h-full rounded-full" style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${hexToRgba(activeTheme.primary, 0.8)}, ${activeTheme.primary})`, animationDelay: `${0.04 * i + 0.25}s` }} />
+                                </div>
+                                <p className="text-[9px] font-bold uppercase text-white/20 mt-1 leading-none">{entry.date}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {isAdmin && (
+              <div className="flex-shrink-0 flex items-center justify-end px-5 sm:px-8 py-3" style={{ background: '#07111f', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <button
+                  onClick={async () => {
+                    if (window.confirm('Tem certeza que deseja apagar TODO o ranking?')) {
+                      try {
+                        const { error } = await supabase.from('showdalicao').delete().neq('id', 0);
+                        if (error) throw error;
+                        fetchRankings();
+                      } catch (err) {
+                        console.error('Error clearing rankings:', err);
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 py-2.5 px-5 rounded-xl font-black uppercase text-xs text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 active:scale-95"
+                  style={{ border: '1px solid rgba(239,68,68,0.18)' }}
+                >
+                  <i className="fi fi-rr-broom" aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
+          );
+        })();
+
+  if (showDashboard && isAdmin) {
+    const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-base sm:text-sm font-normal text-gray-800 outline-none focus:border-blue-400 transition-colors";
+    const labelCls = "block text-xs font-normal uppercase tracking-wider text-gray-500 mb-1";
+    const filtered = dbQuestions.filter(q =>
+      q.topic.toLowerCase().includes(qSearch.toLowerCase()) ||
+      q.question.toLowerCase().includes(qSearch.toLowerCase())
+    );
+
+    return (
+      <div className="min-h-[100dvh] flex flex-col bg-gray-50" style={{ fontFamily: 'Arial Local, Arial, sans-serif' }}>
+
+        {/* ── Header ── */}
+        <div className="flex-shrink-0 flex items-center justify-between gap-2 px-3 sm:px-8 py-2.5 shadow-sm" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}>
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <img src={showDaLicaoLogo} alt="Show da Lição" className="h-7 sm:h-10 w-auto object-contain drop-shadow" />
+            <div className="hidden sm:block h-6 w-px bg-white/30" />
+            <div className="hidden sm:block">
+              <p className="text-[10px] font-normal uppercase tracking-[0.3em] text-white/60 leading-none">Painel do Professor</p>
+              <p className="text-sm font-normal text-white leading-none mt-0.5">Gerenciar Perguntas</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-0.5 sm:gap-1 overflow-x-auto min-w-0 shrink">
+            <button
+              onClick={() => setShowDashboard(false)}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
+              title="Início"
+            >
+              <i className="fi fi-rr-home text-sm leading-none sm:hidden" aria-hidden="true" />
+              <span className="hidden sm:inline">Início</span>
+            </button>
+            <button
+              onClick={() => setShowRanking(true)}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
+              title="Ranking"
+            >
+              <i className="fi fi-rr-trophy text-sm leading-none sm:hidden" aria-hidden="true" />
+              <span className="hidden sm:inline">Ranking</span>
+            </button>
+            <button
+              onClick={() => { returnToDashboard.current = true; setShowDashboard(false); openTeamNamesModal(); }}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
+            >
+              <i className="fi fi-rr-gamepad text-sm leading-none" aria-hidden="true" />
+              <span>Jogar</span>
+            </button>
+            <button
+              onClick={() => {
+                const url = window.location.href;
+                if (navigator.share) {
+                  navigator.share({ title: 'Show da Lição', text: 'Participe do jogo!', url });
+                } else {
+                  navigator.clipboard.writeText(url).then(() => alert('Link copiado!'));
+                }
+              }}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/50 hover:text-white/90 transition-colors active:scale-95 shrink-0"
+              title="Compartilhar jogo"
+            >
+              <i className="fi fi-rr-share text-sm leading-none" aria-hidden="true" />
+              <span className="hidden sm:inline">Jogo</span>
+            </button>
+            <div className="w-px h-4 bg-white/15 mx-0.5 sm:mx-1 shrink-0" />
+            <button
+              onClick={() => setShowSettings(true)}
+              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95 shrink-0"
+              title="Configurações"
+            >
+              <i className="fi fi-rr-settings text-sm leading-none" aria-hidden="true" />
+            </button>
+            <button
+              className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 transition-colors active:scale-95 shrink-0"
+              title="Usuário"
+            >
+              <i className="fi fi-rr-user text-sm leading-none" aria-hidden="true" />
+            </button>
+            <div className="w-px h-4 bg-white/15 mx-0.5 sm:mx-1 shrink-0" />
+            <button
+              onClick={async () => { await handleLogout(); setShowDashboard(false); }}
+              className="px-2 sm:px-2.5 py-2 min-h-[36px] rounded-lg text-xs text-white/40 hover:text-red-400 transition-colors active:scale-95 shrink-0"
+            >
+              Sair
+            </button>
+          </div>
         </div>
 
-        <div className="relative z-10 w-full max-w-4xl flex flex-col items-center" style={setupFixedScaledStyle}>
+        {/* ── Barra de ações ── */}
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-2 sm:gap-3 px-3 sm:px-8 py-3 sm:py-4 border-b border-gray-200 bg-white">
+          <div className="relative flex-1 min-w-[180px] max-w-sm">
+            <i className="fi fi-rr-search absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm" aria-hidden="true" />
+            <input
+              type="text"
+              value={qSearch}
+              onChange={e => setQSearch(e.target.value)}
+              placeholder="Buscar por tópico ou pergunta..."
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 pl-10 pr-4 py-2.5 text-base sm:text-sm text-gray-700 outline-none focus:border-blue-400 transition-colors"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:block text-xs font-normal text-gray-400">{filtered.length} pergunta{filtered.length !== 1 ? 's' : ''}</span>
+            <button
+              onClick={() => { setQDraft(emptyDraft()); setShowQModal(true); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-normal uppercase text-xs text-white transition-all active:scale-95 shadow-sm"
+              style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}
+            >
+              <i className="fi fi-rr-plus text-sm leading-none" aria-hidden="true" />
+              Perguntas
+            </button>
+          </div>
+        </div>
+
+        {/* ── Lista ── */}
+        <div className="flex-1 overflow-y-auto settings-scroll px-4 sm:px-8 py-5">
+          {dbLoading ? (
+            <div className="flex items-center justify-center py-20 text-gray-400">
+              <i className="fi fi-rr-spinner text-3xl animate-spin mr-3" aria-hidden="true" />
+              <span className="font-normal">Carregando perguntas...</span>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+                <i className="fi fi-rr-document text-2xl text-gray-300" aria-hidden="true" />
+              </div>
+              <p className="font-normal text-gray-400 uppercase text-sm">Nenhuma pergunta encontrada</p>
+              <p className="text-xs text-gray-300 mt-1">{qSearch ? 'Tente outro termo de busca' : 'Clique em "Nova Pergunta" para adicionar'}</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-w-4xl mx-auto">
+              {filtered.map((q, idx) => (
+                <div key={q.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow duration-200 p-4 sm:p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      {/* Número */}
+                      <div className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-normal text-white" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})` }}>
+                        {idx + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-[10px] font-normal uppercase tracking-wider px-2 py-0.5 rounded-full text-white" style={{ background: activeTheme.primary }}>{q.topic}</span>
+                          <span className="text-[10px] font-normal text-gray-400 uppercase">{q.source.reference}</span>
+                          {q.points && q.points > 1 && <span className="text-[10px] font-normal text-amber-500">{q.points}pts</span>}
+                        </div>
+                        <p className="text-sm font-normal text-gray-800 leading-snug mb-2">{q.question}</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                          {(['A','B','C','D'] as QuestionOptionKey[]).filter(k => q.options[k]).map(k => (
+                            <div key={k} className={`flex items-center gap-1.5 text-xs rounded-lg px-2 py-1 ${q.answer === k ? 'bg-green-50 text-green-700' : 'text-gray-500'}`}>
+                              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-normal shrink-0 ${q.answer === k ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>{k}</span>
+                              {q.options[k]}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Ações */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => {
+                          setQDraft({
+                            id: q.id, topic: q.topic, question: q.question,
+                            optA: q.options.A ?? '', optB: q.options.B ?? '', optC: q.options.C ?? '', optD: q.options.D ?? '',
+                            answer: q.answer, sourceType: q.source.type, sourceRef: q.source.reference, points: q.points ?? 1,
+                          });
+                          setShowQModal(true);
+                        }}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-blue-500 hover:bg-blue-50 transition-colors duration-150"
+                        title="Editar"
+                      >
+                        <i className="fi fi-rr-edit text-sm" aria-hidden="true" />
+                      </button>
+                      <button
+                        onClick={() => setQDeleteId(q.id)}
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-red-400 hover:bg-red-50 transition-colors duration-150"
+                        title="Excluir"
+                      >
+                        <i className="fi fi-rr-trash text-sm" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Modal Adicionar/Editar ── */}
+        {showQModal && (
+          <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+            <div className="w-full sm:max-w-2xl bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col max-h-[95dvh] sm:max-h-[92vh]">
+              {/* Cabeçalho modal */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <h3 className="font-normal text-lg" style={{ color: activeTheme.primary }}>
+                  {qDraft.id ? 'Editar Pergunta' : 'Nova Pergunta'}
+                </h3>
+                <button onClick={() => setShowQModal(false)} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors">
+                  <i className="fi fi-rr-cross text-sm" aria-hidden="true" />
+                </button>
+              </div>
+              {/* Corpo modal */}
+              <div className="flex-1 overflow-y-auto settings-scroll px-6 py-5 space-y-4">
+                <div>
+                  <label className={labelCls}>Tópico</label>
+                  <input className={inputCls} value={qDraft.topic} onChange={e => setQDraft(d => ({ ...d, topic: e.target.value }))} placeholder="Ex: Humildade e Oração" />
+                </div>
+                <div>
+                  <label className={labelCls}>Pergunta</label>
+                  <textarea className={`${inputCls} resize-none`} rows={3} value={qDraft.question} onChange={e => setQDraft(d => ({ ...d, question: e.target.value }))} placeholder="Digite o enunciado da pergunta..." />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(['A','B','C','D'] as const).map(k => (
+                    <div key={k}>
+                      <label className={labelCls}>
+                        Opção {k}
+                        {k === qDraft.answer && <span className="ml-2 text-green-500">✓ Correta</span>}
+                        {(k === 'C' || k === 'D') && <span className="ml-1 text-gray-300">(opcional)</span>}
+                      </label>
+                      <input
+                        className={`${inputCls} ${k === qDraft.answer ? 'border-green-400 bg-green-50' : ''}`}
+                        value={k === 'A' ? qDraft.optA : k === 'B' ? qDraft.optB : k === 'C' ? qDraft.optC : qDraft.optD}
+                        onChange={e => setQDraft(d => ({ ...d, [`opt${k}`]: e.target.value }))}
+                        placeholder={`Texto da opção ${k}...`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <label className={labelCls}>Resposta Correta</label>
+                  <div className="flex gap-2">
+                    {(['A','B','C','D'] as QuestionOptionKey[]).map(k => (
+                      <button
+                        key={k}
+                        onClick={() => setQDraft(d => ({ ...d, answer: k }))}
+                        className="flex-1 py-2 rounded-xl font-normal text-sm transition-all"
+                        style={qDraft.answer === k
+                          ? { background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`, color: '#fff', boxShadow: `0 4px 12px ${hexToRgba(activeTheme.primary, 0.4)}` }
+                          : { background: '#f1f5f9', color: '#64748b' }}
+                      >{k}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Tipo de Fonte</label>
+                    <select className={inputCls} value={qDraft.sourceType} onChange={e => setQDraft(d => ({ ...d, sourceType: e.target.value as 'licao' | 'biblia' }))}>
+                      <option value="licao">Lição</option>
+                      <option value="biblia">Bíblia</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Referência</label>
+                    <input className={inputCls} value={qDraft.sourceRef} onChange={e => setQDraft(d => ({ ...d, sourceRef: e.target.value }))} placeholder="Ex: Lição 1, Lucas 18:9" />
+                  </div>
+                </div>
+                <div className="w-28">
+                  <label className={labelCls}>Pontos</label>
+                  <input type="number" min={1} max={100} className={inputCls} value={qDraft.points} onChange={e => setQDraft(d => ({ ...d, points: Number(e.target.value) }))} />
+                </div>
+              </div>
+              {/* Rodapé modal */}
+              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
+                <button onClick={() => setShowQModal(false)} className="px-5 py-2.5 rounded-xl bg-gray-100 text-gray-600 font-normal text-sm hover:bg-gray-200 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveQuestion}
+                  disabled={dbSaving}
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-white font-normal text-sm shadow-lg transition-all active:scale-95 disabled:opacity-60"
+                  style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}
+                >
+                  <i className={`fi ${dbSaving ? 'fi-rr-spinner animate-spin' : 'fi-rr-disk'} leading-none`} aria-hidden="true" />
+                  {dbSaving ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Confirmar exclusão ── */}
+        {qDeleteId !== null && (
+          <div className="fixed inset-0 z-[210] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl p-7 max-w-sm w-full text-center">
+              <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+                <i className="fi fi-rr-trash text-2xl text-red-400" aria-hidden="true" />
+              </div>
+              <h3 className="font-normal text-lg text-gray-800 mb-2">Excluir Pergunta?</h3>
+              <p className="text-sm text-gray-500 mb-6">Esta ação não pode ser desfeita.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setQDeleteId(null)} className="flex-1 py-3 rounded-2xl bg-gray-100 text-gray-600 font-normal text-sm">Cancelar</button>
+                <button onClick={() => handleDeleteQuestion(qDeleteId!)} className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-normal text-sm shadow-lg">Excluir</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {rankingOverlay}
+      </div>
+    );
+  }
+
+  if (showLoginScreen && !isAdmin) {
+    const closeLoginScreen = () => {
+      setShowLoginScreen(false);
+      setLoginMode('login');
+      setLoginEmail('');
+      setLoginPassword('');
+      setLoginConfirmPassword('');
+      setLoginName('');
+      setLoginMessage(null);
+      setShowLoginPassword(false);
+      setShowLoginConfirmPassword(false);
+    };
+
+    const switchMode = (mode: 'login' | 'register' | 'forgot') => {
+      setLoginMode(mode);
+      setLoginMessage(null);
+      setLoginPassword('');
+      setLoginConfirmPassword('');
+      setLoginName('');
+      setShowLoginPassword(false);
+      setShowLoginConfirmPassword(false);
+    };
+
+    const titles = { login: 'Acesso do Professor', register: 'Criar Conta', forgot: 'Recuperar Senha' };
+    const subtitles = {
+      login: 'Entre com suas credenciais para continuar',
+      register: 'Preencha os dados para criar sua conta',
+      forgot: 'Informe seu e-mail para receber o link de recuperação',
+    };
+
+    return (
+      <div
+        className="fixed inset-0 flex items-center justify-center p-4 overflow-hidden"
+        style={{ background: `linear-gradient(150deg, ${mixHex(activeTheme.gradientStart,'#001122',0.35)} 0%, ${activeTheme.primary} 45%, ${mixHex(activeTheme.gradientEnd,'#001a2e',0.3)} 100%)` }}
+      >
+        {/* Vinheta */}
+        <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,0,0,0.45) 100%)' }} />
+        {/* Spotlight */}
+        <div className="pointer-events-none absolute" style={{ top: '0%', left: '50%', transform: 'translateX(-50%)', width: '70%', height: '65%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.12) 0%, transparent 65%)' }} />
+        {/* Grade */}
+        <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)', backgroundSize: '72px 72px' }} />
+
+
+        {/* Card */}
+        <div className="relative z-10 w-full max-w-sm fade-in-up" style={{ fontFamily: 'Arial Local, Arial, sans-serif' }}>
+
+          {/* Logo */}
+          <div className="flex justify-center mb-6">
+            <img src={showDaLicaoLogo} alt="Show da Lição" className="w-52 h-auto object-contain" style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.4))' }} />
+          </div>
+
+          {/* Formulário */}
+          <div className="rounded-3xl p-7 shadow-2xl" style={{ background: 'rgba(255,255,255,0.10)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.2)' }}>
+
+            {/* Título */}
+            <h2 className="text-xl font-black text-white text-center mb-0.5">{titles[loginMode]}</h2>
+            <p className="text-white/50 text-xs text-center font-semibold mb-6">{subtitles[loginMode]}</p>
+
+            {/* Mensagem de feedback */}
+            {loginMessage && (
+              <div
+                className="flex items-start gap-2.5 rounded-2xl px-4 py-3 mb-5 text-sm font-semibold"
+                style={{
+                  background: loginMessage.type === 'success' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                  border: `1px solid ${loginMessage.type === 'success' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                  color: loginMessage.type === 'success' ? '#86efac' : '#fca5a5',
+                }}
+              >
+                <i className={`fi ${loginMessage.type === 'success' ? 'fi-rr-check' : 'fi-rr-exclamation'} text-sm mt-0.5 shrink-0`} aria-hidden="true" />
+                <span>{loginMessage.text}</span>
+              </div>
+            )}
+
+            {/* Campos */}
+            <div className="space-y-3 mb-5">
+
+              {/* Nome de usuário — só register */}
+              {loginMode === 'register' && (
+                <div className="relative">
+                  <i className="fi fi-rr-user absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" aria-hidden="true" />
+                  <input
+                    type="text"
+                    value={loginName}
+                    onChange={e => setLoginName(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                    placeholder="Seu nome"
+                    className="w-full rounded-2xl pl-11 pr-4 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
+                    autoComplete="name"
+                    maxLength={40}
+                  />
+                </div>
+              )}
+
+              {/* E-mail */}
+              <div className="relative">
+                <i className="fi fi-rr-envelope absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" aria-hidden="true" />
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={e => setLoginEmail(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && loginMode === 'login' && handleLogin()}
+                  placeholder="seu@email.com"
+                  className="w-full rounded-2xl pl-11 pr-4 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                  style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
+                  autoComplete="email"
+                />
+              </div>
+
+              {/* Senha */}
+              {loginMode !== 'forgot' && (
+                <div className="relative">
+                  <i className="fi fi-rr-lock absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" aria-hidden="true" />
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && loginMode === 'login' && handleLogin()}
+                    placeholder="••••••••"
+                    className="w-full rounded-2xl pl-11 pr-11 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
+                    autoComplete={loginMode === 'register' ? 'new-password' : 'current-password'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(v => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors duration-150"
+                    tabIndex={-1}
+                    aria-label={showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    <i className={`fi ${showLoginPassword ? 'fi-rr-eye-crossed' : 'fi-rr-eye'} text-sm`} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+
+              {/* Confirmar senha — só register */}
+              {loginMode === 'register' && (
+                <div className="relative">
+                  <i className="fi fi-rr-lock absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm" aria-hidden="true" />
+                  <input
+                    type={showLoginConfirmPassword ? 'text' : 'password'}
+                    value={loginConfirmPassword}
+                    onChange={e => setLoginConfirmPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleRegister()}
+                    placeholder="Confirmar senha"
+                    className="w-full rounded-2xl pl-11 pr-11 py-3 font-semibold text-gray-800 placeholder-gray-400 outline-none transition-all duration-200 text-base sm:text-sm"
+                    style={{ background: 'rgba(255,255,255,0.92)', border: '1.5px solid rgba(255,255,255,0.6)' }}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginConfirmPassword(v => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors duration-150"
+                    tabIndex={-1}
+                    aria-label={showLoginConfirmPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    <i className={`fi ${showLoginConfirmPassword ? 'fi-rr-eye-crossed' : 'fi-rr-eye'} text-sm`} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Link "Esqueceu a senha" — só no login */}
+            {loginMode === 'login' && (
+              <div className="flex justify-end mb-5">
+                <button
+                  onClick={() => switchMode('forgot')}
+                  className="text-xs font-bold text-white/60 hover:text-white transition-colors duration-150 underline underline-offset-2"
+                >
+                  Esqueceu sua senha?
+                </button>
+              </div>
+            )}
+
+            {/* Botão principal */}
+            <button
+              onClick={loginMode === 'login' ? handleLogin : loginMode === 'register' ? handleRegister : handleForgotPassword}
+              className="w-full py-3.5 font-black text-base rounded-2xl transition-all duration-200 active:scale-95 mb-4"
+              style={{ background: '#ffffff', color: activeTheme.primary, boxShadow: '0 8px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.9)' }}
+            >
+              {loginMode === 'login' && <><i className="fi fi-rr-sign-in-alt mr-2" aria-hidden="true" />Entrar</>}
+              {loginMode === 'register' && <><i className="fi fi-rr-user-add mr-2" aria-hidden="true" />Criar Conta</>}
+              {loginMode === 'forgot' && <><i className="fi fi-rr-paper-plane mr-2" aria-hidden="true" />Enviar Link</>}
+            </button>
+
+            {/* Links de alternância */}
+            <div className="flex flex-col items-center gap-2 text-xs font-bold">
+              {loginMode === 'login' && (
+                <div className="flex items-center gap-4">
+                  <button onClick={() => switchMode('register')} className="text-white/55 hover:text-white transition-colors duration-150">
+                    Criar conta
+                  </button>
+                  <span className="text-white/25">·</span>
+                  <button onClick={closeLoginScreen} className="text-white/55 hover:text-white transition-colors duration-150">
+                    Voltar
+                  </button>
+                </div>
+              )}
+              {loginMode === 'register' && (
+                <button onClick={() => switchMode('login')} className="text-white/55 hover:text-white transition-colors duration-150">
+                  Já tenho conta
+                </button>
+              )}
+              {loginMode === 'forgot' && (
+                <button onClick={() => switchMode('login')} className="text-white/55 hover:text-white transition-colors duration-150">
+                  Já tenho conta
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (gameState.mode === 'setup') {
+    return (
+      <div
+        className="relative flex items-center justify-center min-h-[100dvh] text-white text-center overflow-hidden"
+        style={{ background: `linear-gradient(150deg, ${mixHex(activeTheme.gradientStart,'#001122',0.35)} 0%, ${activeTheme.primary} 45%, ${mixHex(activeTheme.gradientEnd,'#001a2e',0.3)} 100%)` }}
+      >
+        {/* Vinheta nas bordas */}
+        <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 45%, transparent 35%, rgba(0,0,0,0.45) 100%)', zIndex: 1 }} />
+
+        {/* Spotlight atrás do logo */}
+        <div className="pointer-events-none absolute" style={{ top: '0%', left: '50%', transform: 'translateX(-50%)', width: '70%', height: '65%', background: 'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.13) 0%, transparent 65%)', zIndex: 1 }} />
+
+        {/* Grade sutil */}
+        <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)', backgroundSize: '72px 72px', zIndex: 1 }} />
+
+        {/* Linha brilhante horizontal */}
+        <div className="pointer-events-none absolute left-0 right-0" style={{ top: '58%', height: '1px', background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 30%, rgba(255,255,255,0.12) 70%, transparent 100%)', zIndex: 2 }} />
+
+        {/* Conteúdo */}
+        <div className="relative w-full max-w-4xl flex flex-col items-center px-4 py-8" style={{ zIndex: 3, ...setupFixedScaledStyle }}>
 
           <img
             src={showDaLicaoLogo}
             alt="Show da Lição"
-            className="relative z-10 w-full max-w-[820px] h-auto object-contain mb-8 md:mb-10 drop-shadow-2xl"
+            className="logo-float w-full max-w-[320px] sm:max-w-[560px] md:max-w-[780px] h-auto object-contain mb-8 md:mb-14"
+            style={{ filter: 'drop-shadow(0 12px 40px rgba(0,0,0,0.45)) drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}
           />
 
-          <div className="relative z-10 w-full max-w-md space-y-4 flex flex-col items-center">
+          <div className="w-full max-w-xs flex flex-col items-center gap-4">
+            {/* Botão principal — branco com cor do tema */}
             <button
-              onClick={() => setShowModeSelection(true)}
-              className="inline-flex items-center justify-center text-white hover:text-green-300 font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl text-xl md:text-2xl uppercase transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95"
+              onClick={() => {
+                if (isAdmin) {
+                  setShowDashboard(true);
+                  fetchDbQuestions();
+                } else {
+                  setShowLoginScreen(true);
+                }
+              }}
+              className="btn-quiz-primary w-full py-4 md:py-5 text-2xl md:text-3xl rounded-2xl transition-all duration-200 active:scale-95"
+              style={{
+                background: '#ffffff',
+                color: activeTheme.primary,
+                boxShadow: `0 10px 40px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.9)`,
+                fontWeight: 900,
+              }}
             >
-              Quiz ES
+              Criar Jogo
             </button>
+
+            {/* Divisor */}
+            <div className="flex items-center gap-3 w-full">
+              <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.2)' }} />
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/35">ou</span>
+              <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.2)' }} />
+            </div>
+
+            {/* Botão ranking */}
             <button
               onClick={() => setShowRanking(true)}
-              className="inline-flex flex-col items-center justify-center text-white hover:text-amber-400 font-black py-4 px-8 rounded-2xl transition-all duration-200 ease-out shadow-none border-0 bg-transparent hover:bg-transparent active:scale-95 group"
+              className="group inline-flex items-center gap-2.5 text-white/75 hover:text-white font-black py-2.5 px-6 rounded-2xl transition-all duration-200 ease-out active:scale-95 w-full justify-center"
+              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}
               title="Ranking"
             >
-              <i className="fi fi-rr-trophy text-3xl mb-1 transition-transform duration-200 group-hover:scale-110" aria-hidden="true" />
-              <span className="text-[10px] uppercase tracking-[0.2em] font-black opacity-70 group-hover:opacity-100">Ranking</span>
+              <img src={trofeuIcon} alt="Troféu" className="w-6 h-6 object-contain drop-shadow transition-transform duration-200 group-hover:scale-115" />
+              <span className="text-sm uppercase tracking-[0.25em]">Ranking</span>
             </button>
           </div>
 
         </div>
 
         {showModeSelection && (
-          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border-4 p-8 text-center" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
-              <p className="text-sm uppercase font-black mb-6">Escolha o modo de jogo</p>
-              <div className="flex flex-col gap-4">
+          <div className="fixed inset-0 z-[100] bg-black/65 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border-0 p-8 text-center fade-in-up" style={{ color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', boxShadow: `0 32px 64px rgba(0,0,0,0.28), 0 0 0 1px ${hexToRgba(activeTheme.accent, 0.4)}` }}>
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-5 flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart}, ${activeTheme.gradientEnd})` }}>
+                <i className="fi fi-rr-gamepad text-white text-2xl" aria-hidden="true" />
+              </div>
+              <p className="text-xs uppercase tracking-[0.25em] font-black text-gray-400 mb-1">Modo de Jogo</p>
+              <h3 className="text-xl font-black mb-7" style={{ color: activeTheme.primary }}>Como deseja jogar?</h3>
+              <div className="flex flex-col gap-3">
                 <button
                   onClick={() => {
                     setShowModeSelection(false);
                     openTeamNamesModal();
                   }}
-                  className="w-full rounded-2xl py-4 text-white font-black uppercase text-lg shadow-lg transition-all duration-200 ease-out hover:brightness-110"
-                  style={{ backgroundColor: activeTheme.primary }}
+                  className="btn-quiz-primary w-full py-4 text-white font-black uppercase text-base shadow-xl"
+                  style={{
+                    background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)`,
+                    boxShadow: `0 6px 20px ${hexToRgba(activeTheme.primary, 0.4)}`
+                  }}
                 >
+                  <i className="fi fi-rr-users mr-2" aria-hidden="true" />
                   Equipes
                 </button>
                 <button
@@ -2893,13 +3636,15 @@ const App: React.FC = () => {
                     setShowModeSelection(false);
                     setShowSoloNameModal(true);
                   }}
-                  className="w-full rounded-2xl py-4 bg-gray-100 text-gray-700 font-black uppercase text-lg hover:bg-gray-200 transition-all duration-200"
+                  className="w-full rounded-2xl py-4 border-2 font-black uppercase text-base transition-all duration-200 hover:shadow-md active:scale-95"
+                  style={{ borderColor: hexToRgba(activeTheme.primary, 0.3), color: activeTheme.primary, backgroundColor: hexToRgba(activeTheme.accent, 0.12) }}
                 >
+                  <i className="fi fi-rr-user mr-2" aria-hidden="true" />
                   Solo
                 </button>
                 <button
                   onClick={() => setShowModeSelection(false)}
-                  className="mt-2 text-xs uppercase font-black text-gray-400 hover:text-gray-600"
+                  className="mt-1 text-xs uppercase font-black text-gray-400 hover:text-gray-600 py-2 transition-colors"
                 >
                   Cancelar
                 </button>
@@ -2948,8 +3693,8 @@ const App: React.FC = () => {
         {loginModal}
 
         {showTeamNamesModal && (
-          <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-4 p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
+          <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4">
+            <div className="w-full sm:max-w-md bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl border-t-4 sm:border-4 p-5 sm:p-6 md:p-7 text-left" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif', fontSize: '15pt' }}>
               <p className="text-sm uppercase font-black mb-4">Alterar Nome de Equipes</p>
 
               <div className="space-y-4 mb-6">
@@ -2959,7 +3704,7 @@ const App: React.FC = () => {
                     type="text"
                     value={draftTeam1Name}
                     onChange={(e) => setDraftTeam1Name(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
                     placeholder="Nome da Equipe 1..."
                   />
                 </div>
@@ -2969,7 +3714,7 @@ const App: React.FC = () => {
                     type="text"
                     value={draftTeam2Name}
                     onChange={(e) => setDraftTeam2Name(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 font-semibold text-gray-800 outline-none"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-base font-semibold text-gray-800 outline-none"
                     placeholder="Nome da Equipe 2..."
                   />
                 </div>
@@ -2977,7 +3722,13 @@ const App: React.FC = () => {
 
               <div className="flex items-center justify-end gap-3">
                 <button
-                  onClick={() => setShowTeamNamesModal(false)}
+                  onClick={() => {
+                    setShowTeamNamesModal(false);
+                    if (returnToDashboard.current) {
+                      returnToDashboard.current = false;
+                      setShowDashboard(true);
+                    }
+                  }}
                   className="rounded-xl px-5 py-3 bg-gray-100 text-gray-700 font-black uppercase text-sm"
                 >
                   Fechar
@@ -2995,89 +3746,9 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {showRanking && (
-          <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border-4 flex flex-col max-h-[85vh]" style={{ borderColor: activeTheme.accent, color: activeTheme.primary, fontFamily: 'Arial Local, Arial, sans-serif' }}>
-              <div className="p-6 md:p-8 border-b border-gray-100">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="text-xl md:text-2xl font-black uppercase flex items-center gap-3">
-                    <i className="fi fi-rr-trophy text-amber-400" aria-hidden="true" />
-                    Ranking
-                  </h3>
-                  <button
-                    onClick={() => setShowRanking(false)}
-                    className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors"
-                  >
-                    <i className="fi fi-rr-cross-small text-xl text-gray-500" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex-1 overflow-y-auto p-6 md:p-8 settings-scroll">
-                {rankings.length === 0 ? (
-                  <div className="text-center py-10 opacity-50">
-                    <i className="fi fi-rr-box-open text-5xl mb-4 block" aria-hidden="true" />
-                    <p className="font-black uppercase text-sm">Nenhum recorde ainda</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {rankings.map((entry, idx) => (
-                      <div 
-                        key={`${entry.name}-${idx}`} 
-                        className={`flex items-center gap-4 p-4 rounded-2xl border ${idx === 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'}`}
-                      >
-                        <div className="w-10 h-10 flex items-center justify-center shrink-0">
-                          {idx === 0 ? (
-                            <img src={goldMedal} alt="1º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
-                          ) : idx === 1 ? (
-                            <img src={silverMedal} alt="2º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
-                          ) : idx === 2 ? (
-                            <img src={bronzeMedal} alt="3º lugar" className="w-10 h-10 object-contain drop-shadow-sm" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full flex items-center justify-center font-black text-xs bg-gray-100 text-gray-400 border border-gray-200">
-                              {idx + 1}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-black uppercase text-sm md:text-base truncate">{entry.name}</p>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase">{entry.date}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-black text-lg md:text-xl" style={{ color: activeTheme.primary }}>{entry.score}</p>
-                          <p className="text-[9px] font-black text-gray-400 uppercase">Pontos</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              <div className="p-6 bg-gray-50 rounded-b-[1.7rem] flex justify-center">
-                {isAdmin && (
-                  <button
-                    onClick={async () => {
-                      if (window.confirm('Tem certeza que deseja apagar TODO o ranking do banco de dados?')) {
-                        try {
-                          const { error } = await supabase.from('showdalicao').delete().neq('id', 0); // Delete all
-                          if (error) throw error;
-                          fetchRankings();
-                        } catch (err) {
-                          console.error('Error clearing rankings:', err);
-                        }
-                      }
-                    }}
-                    className="text-[10px] font-black uppercase text-gray-400 hover:text-red-500 transition-colors"
-                  >
-                    Limpar Ranking Global
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {rankingOverlay}
+
         {updateButton}
-        {settingsButton}
         {updateDialog}
         {appFooter}
         {loginModal}
@@ -3098,38 +3769,65 @@ const App: React.FC = () => {
 
     return (
       <div className="min-h-[100dvh] flex items-center justify-center p-4 md:p-6 overflow-y-auto settings-scroll">
-        <div className="w-full max-w-3xl flex items-center justify-center" style={setupScaledStyle}>
-          <div className="bg-white p-6 md:p-16 rounded-[2rem] shadow-2xl text-center w-full border-4 md:border-8" style={{ color: activeTheme.primary, borderColor: activeTheme.primary }}>
-            <h2 className="text-2xl sm:text-5xl md:text-6xl font-black mb-6 md:mb-10 uppercase">Fim de Jogo</h2>
-            
-            <div className={`grid ${gameState.isSoloMode ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'} gap-4 md:gap-6 mb-8 md:mb-12 justify-center items-center`}>
-              <div 
-                className={`p-6 rounded-3xl border-4 ${gameState.isSoloMode || (winner === gameState.teams[0] && !isDraw) ? '' : 'bg-gray-50 border-gray-100'} ${gameState.isSoloMode ? 'max-w-xs mx-auto w-full' : ''}`} 
-                style={gameState.isSoloMode || (winner === gameState.teams[0] && !isDraw) ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}
-              >
-                <p className="text-sm font-black uppercase mb-2">{gameState.teams[0].name}</p>
-                <p className="text-4xl font-black">{gameState.teams[0].score}</p>
+        <div className="w-full max-w-2xl" style={setupScaledStyle}>
+          <div className="bg-white rounded-[2rem] shadow-2xl text-center w-full overflow-hidden">
+            {/* Header colorido */}
+            <div
+              className="px-5 sm:px-8 pt-8 sm:pt-10 pb-6 sm:pb-8"
+              style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}
+            >
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <i className="fi fi-rr-trophy text-white text-2xl sm:text-3xl" aria-hidden="true" />
               </div>
-              
-              {!gameState.isSoloMode && (
-                <div className={`p-6 rounded-3xl border-4 ${winner === gameState.teams[1] && !isDraw ? '' : 'bg-gray-50 border-gray-100'}`} style={winner === gameState.teams[1] && !isDraw ? { backgroundColor: themeSoft, borderColor: activeTheme.primary } : undefined}>
-                  <p className="text-sm font-black uppercase mb-2">{gameState.teams[1].name}</p>
-                  <p className="text-4xl font-black">{gameState.teams[1].score}</p>
-                </div>
-              )}
+              <h2 className="text-xl sm:text-3xl md:text-4xl font-black uppercase text-white mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>Fim de Jogo</h2>
+              <p className="text-white/70 text-sm font-semibold uppercase tracking-wider">
+                {gameState.isSoloMode ? `Parabéns, ${gameState.teams[0].name}!` : (isDraw ? 'Empate Técnico!' : `Vencedor: ${winner.name}`)}
+              </p>
             </div>
 
-            <p className="text-2xl sm:text-4xl md:text-5xl font-black mb-8 md:mb-12 uppercase italic" style={{ color: activeTheme.primary }}>
-              {gameState.isSoloMode ? `Parabéns, ${gameState.teams[0].name}!` : (isDraw ? "Empate Técnico!" : `O vencedor é ${winner.name}!`)}
-            </p>
+            {/* Placar */}
+            <div className="p-4 sm:p-6 md:p-8">
+              <div className={`grid ${gameState.isSoloMode ? 'grid-cols-1 max-w-xs mx-auto' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
+                {gameState.teams.slice(0, gameState.isSoloMode ? 1 : 2).map((team, idx) => {
+                  const isWinner = !isDraw && team === winner;
+                  return (
+                    <div
+                      key={team.name}
+                      className="rounded-2xl p-5 border-2 transition-all"
+                      style={isWinner || gameState.isSoloMode ? {
+                        background: hexToRgba(activeTheme.accent, 0.18),
+                        borderColor: activeTheme.primary
+                      } : {
+                        background: '#f8fafc',
+                        borderColor: '#e2e8f0'
+                      }}
+                    >
+                      {isWinner && !gameState.isSoloMode && (
+                        <div className="text-xs font-black uppercase tracking-wider mb-2 flex items-center justify-center gap-1" style={{ color: activeTheme.primary }}>
+                          <i className="fi fi-rr-crown" aria-hidden="true" />
+                          Vencedor
+                        </div>
+                      )}
+                      <p className="text-xs sm:text-sm font-black uppercase text-gray-500 mb-2 truncate">{team.name}</p>
+                      <p className="text-3xl sm:text-4xl font-black" style={{ color: isWinner || gameState.isSoloMode ? activeTheme.primary : '#94a3b8' }}>
+                        {team.score}
+                      </p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">pontos</p>
+                    </div>
+                  );
+                })}
+              </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-10 mt-4">
               <button
                 onClick={handleFinalize}
-                className="inline-flex items-center justify-center text-white font-black py-4 md:py-5 px-6 md:px-8 rounded-2xl text-base md:text-2xl transition-all duration-200 ease-out hover:brightness-110 shadow-lg w-full sm:min-w-[220px] uppercase tracking-wider"
-                style={{ backgroundColor: activeTheme.primary }}
+                className="btn-quiz-primary w-full py-4 text-white font-black text-base md:text-lg uppercase tracking-wider shadow-xl"
+                style={{
+                  background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)`,
+                  boxShadow: `0 6px 0 ${hexToRgba(activeTheme.primary, 0.6)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.35)}`
+                }}
               >
-                Finalizar
+                <i className="fi fi-rr-refresh mr-2" aria-hidden="true" />
+                Jogar Novamente
               </button>
             </div>
           </div>
@@ -3203,15 +3901,17 @@ const App: React.FC = () => {
             </div>
           )}
 
-          <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-6 md:p-10 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
-            <div className="text-center max-w-3xl mx-auto">
-              <h3 className="text-2xl md:text-4xl font-black text-gray-800 leading-tight mb-5">Nenhuma pergunta disponível</h3>
-              <p className="text-base md:text-xl font-semibold text-gray-700 leading-relaxed mb-4">Volte na tela inicial e siga os seguintes passos:</p>
-              <p className="inline-flex items-center justify-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm md:text-lg font-black text-gray-800">
-                Configuração
-                <i className="fi fi-rr-menu-burger icon-font-black text-[16px] md:text-[18px] leading-none" aria-hidden="true" />
-                -&gt; Perguntas -&gt; Gerar Perguntas.
-              </p>
+          <div className="question-card mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-6 md:p-10 mb-6 sm:mb-8 flex-grow border-b-[10px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent, ['--card-accent' as any]: activeTheme.accent }}>
+            <div className="text-center max-w-xl mx-auto py-8">
+              <div className="w-20 h-20 rounded-3xl mx-auto mb-6 flex items-center justify-center" style={{ background: hexToRgba(activeTheme.accent, 0.18) }}>
+                <i className="fi fi-rr-document text-4xl" style={{ color: activeTheme.primary }} aria-hidden="true" />
+              </div>
+              <h3 className="text-xl md:text-3xl font-black text-gray-800 leading-tight mb-3">Nenhuma pergunta disponível</h3>
+              <p className="text-sm md:text-base font-semibold text-gray-500 leading-relaxed mb-6">Volte à tela inicial e gere as perguntas antes de jogar.</p>
+              <div className="inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black text-gray-700 bg-gray-50 border-gray-200">
+                <i className="fi fi-rr-menu-burger text-sm" aria-hidden="true" />
+                Configurações → Perguntas → Gerar Perguntas
+              </div>
             </div>
           </div>
         </div>
@@ -3238,66 +3938,90 @@ const App: React.FC = () => {
         style={{ transform: isMobile ? 'none' : `scale(${gameZoomLevel / 100})`, transformOrigin: 'center top' }}
       >
       {/* Header Info */}
-      <div className="sticky top-[6px] z-40 flex flex-nowrap justify-between items-center gap-2 mb-3 bg-white/20 p-2 sm:p-4 md:p-5 rounded-2xl md:rounded-3xl backdrop-blur-md text-white border border-white/30 shadow-2xl">
-        <button onClick={resetToSetup} className="inline-flex items-center justify-center text-white hover:text-green-300 px-3 sm:px-5 py-2 sm:py-3 rounded-xl md:rounded-2xl text-[10px] sm:text-sm font-black uppercase transition-all duration-200 ease-out shadow-lg hover:brightness-110 active:scale-90" style={{ backgroundColor: activeTheme.primary }}>Inicio</button>
-        <div className="text-center flex-1 min-w-0">
-          <p className="text-[9px] sm:text-xs font-bold uppercase opacity-80 mb-0.5">
-            {gameState.isSoloMode ? gameState.teams[0].name : "Equipe Atual"}
+      <div className="sticky top-[6px] z-40 flex flex-nowrap justify-between items-center gap-2 mb-3 bg-black/25 p-2 sm:p-3 md:p-4 rounded-2xl md:rounded-3xl backdrop-blur-md text-white border border-white/20 shadow-2xl">
+        <button
+          onClick={resetToSetup}
+          className="inline-flex items-center justify-center gap-1.5 text-white font-black px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase transition-all duration-200 ease-out active:scale-90 border border-white/25 hover:bg-white/15"
+          style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+        >
+          <i className="fi fi-rr-home text-xs" aria-hidden="true" />
+          <span className="hidden sm:inline">Início</span>
+        </button>
+
+        <div className="text-center flex-1 min-w-0 px-2">
+          <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 mb-0.5">
+            {gameState.isSoloMode ? 'Pontuação' : 'Vez da Equipe'}
           </p>
-          <p className="text-sm sm:text-2xl md:text-3xl font-black leading-none italic truncate">
+          <p className="text-base sm:text-xl md:text-2xl font-black leading-none truncate" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
             {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
           </p>
         </div>
-        <div className="flex items-center gap-2 md:gap-4">
+
+        <div className="flex items-center gap-2 shrink-0">
           {gameState.isSoloMode && (
             <button
               onClick={handleTenSecondsTimer}
-              className="w-8 h-8 md:w-11 md:h-11 rounded-lg md:rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all duration-200"
-              title="Tempo 10s"
+              className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center transition-all duration-200 active:scale-90"
+              title="Iniciar cronômetro de 10s"
             >
-              <i className="fi fi-ts-time-forward-ten text-sm md:text-xl" aria-hidden="true" />
+              <i className="fi fi-ts-time-forward-ten text-sm md:text-base" aria-hidden="true" />
             </button>
           )}
-          <div className="text-right shrink-0">
-            <p className="text-[9px] sm:text-xs font-bold uppercase opacity-80 mb-0.5">Questão</p>
-            <p className="text-sm sm:text-xl md:text-2xl font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
+          <div className="bg-white/15 border border-white/20 rounded-xl px-3 py-1.5 text-center min-w-[60px]">
+            <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 leading-none mb-0.5">Questão</p>
+            <p className="text-sm sm:text-lg font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
           </div>
         </div>
       </div>
 
       {/* Scoreboard */}
       {!gameState.isSoloMode && (
-        <div className="sticky top-[60px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
+        <div className="sticky top-[58px] sm:top-[82px] md:top-[92px] z-30 relative mb-4 sm:mb-5">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-3">
             {(() => {
               const team1 = gameState.teams[0];
               const team2 = gameState.teams[1];
+              const isTeam1Active = 0 === gameState.currentTeamIndex;
+              const isTeam2Active = 1 === gameState.currentTeamIndex;
 
               return (
                 <>
                   <div
-                    className={`min-w-0 h-[48px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${0 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
-                    style={0 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
+                    className={`min-w-0 h-[52px] sm:h-[68px] md:h-[80px] px-2 sm:px-4 rounded-2xl text-center border-2 transition-all duration-300 ease-out flex flex-col items-center justify-center ${isTeam1Active ? 'scale-[1.03]' : 'bg-black/20 text-white border-white/10'}`}
+                    style={isTeam1Active ? {
+                      background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`,
+                      borderColor: 'rgba(255,255,255,0.45)',
+                      color: '#fff',
+                      boxShadow: `0 0 0 3px ${hexToRgba(activeTheme.primary, 0.4)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.4)}`
+                    } : undefined}
                   >
-                    <p className="text-[10px] sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-0.5 md:mb-1">{team1.name}</p>
-                    <p className="text-xs sm:text-base md:text-lg font-black leading-none">{team1.score} pts</p>
+                    <p className="text-[9px] sm:text-xs md:text-sm font-black uppercase truncate leading-none mb-0.5 md:mb-1 opacity-85 w-full">{team1.name}</p>
+                    <p className="text-sm sm:text-lg md:text-xl font-black leading-none">{team1.score}</p>
+                    <p className="text-[7px] sm:text-[9px] font-bold uppercase opacity-50 leading-none mt-0.5">pts</p>
                   </div>
 
                   <button
                     onClick={handleTenSecondsTimer}
-                    className="h-[48px] sm:h-[72px] md:h-[88px] min-w-[48px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl bg-white/20 hover:bg-white/25 backdrop-blur-sm shadow-none border-0 flex items-center justify-center transition-all duration-200 ease-out active:scale-95"
+                    className="h-[52px] sm:h-[68px] md:h-[80px] min-w-[52px] sm:min-w-[68px] md:min-w-[80px] px-2 sm:px-3 rounded-2xl bg-black/25 hover:bg-black/35 backdrop-blur-sm border border-white/15 flex flex-col items-center justify-center gap-1 transition-all duration-200 ease-out active:scale-90"
                     aria-label="Iniciar contador de 10 segundos"
-                    title="Tempo 10s"
+                    title="Cronômetro 10s"
                   >
-                    <i className="fi fi-ts-time-forward-ten icon-font-black text-[24px] md:text-[38px] leading-none" aria-hidden="true" />
+                    <i className="fi fi-ts-time-forward-ten text-white text-[22px] md:text-[30px] leading-none" aria-hidden="true" />
+                    <span className="text-[7px] font-black text-white/50 uppercase tracking-wider hidden sm:block">10s</span>
                   </button>
 
                   <div
-                    className={`min-w-0 h-[48px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-xl md:rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center ${1 === gameState.currentTeamIndex ? 'text-white border-white scale-[1.02] shadow-xl' : 'bg-white/20 text-white border-white/10'}`}
-                    style={1 === gameState.currentTeamIndex ? { backgroundColor: activeTheme.primary, boxShadow: `0 0 0 3px ${themePrimaryRing}, 0 14px 22px -12px ${hexToRgba(activeTheme.primary, 0.5)}` } : undefined}
+                    className={`min-w-0 h-[52px] sm:h-[68px] md:h-[80px] px-2 sm:px-4 rounded-2xl text-center border-2 transition-all duration-300 ease-out flex flex-col items-center justify-center ${isTeam2Active ? 'scale-[1.03]' : 'bg-black/20 text-white border-white/10'}`}
+                    style={isTeam2Active ? {
+                      background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`,
+                      borderColor: 'rgba(255,255,255,0.45)',
+                      color: '#fff',
+                      boxShadow: `0 0 0 3px ${hexToRgba(activeTheme.primary, 0.4)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.4)}`
+                    } : undefined}
                   >
-                    <p className="text-[10px] sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-0.5 md:mb-1">{team2.name}</p>
-                    <p className="text-xs sm:text-base md:text-lg font-black leading-none">{team2.score} pts</p>
+                    <p className="text-[9px] sm:text-xs md:text-sm font-black uppercase truncate leading-none mb-0.5 md:mb-1 opacity-85 w-full">{team2.name}</p>
+                    <p className="text-sm sm:text-lg md:text-xl font-black leading-none">{team2.score}</p>
+                    <p className="text-[7px] sm:text-[9px] font-bold uppercase opacity-50 leading-none mt-0.5">pts</p>
                   </div>
                 </>
               );
@@ -3344,7 +4068,7 @@ const App: React.FC = () => {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => setSettingsSection(item.id as 'interface' | 'perguntas' | 'fontes')}
+                      onClick={() => setSettingsSection(item.id as 'interface' | 'fontes')}
                       className={`w-full text-left px-4 py-2.5 rounded-xl font-black uppercase text-xs transition-all border ${isActive ? 'shadow-md' : 'hover:bg-white'}`}
                       style={isActive
                         ? {
@@ -3624,43 +4348,81 @@ const App: React.FC = () => {
       ) : (
         <>
           {/* Main Question Area */}
-          <div className="mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-5 sm:p-6 md:p-10 xl:p-14 mb-6 sm:mb-8 flex-grow border-b-[12px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent }}>
-            <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none text-[6rem] md:text-[12rem]">L</div>
-            <div className="relative z-10 w-full">
+          <div className="question-card mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-5 sm:p-6 md:p-10 xl:p-12 mb-5 sm:mb-6 flex-grow border-b-[10px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent, ['--card-accent' as any]: activeTheme.accent }}>
+            {/* Número da questão decorativo */}
+            <div className="absolute top-4 right-6 font-black text-[5rem] md:text-[9rem] leading-none pointer-events-none select-none" style={{ color: hexToRgba(activeTheme.accent, 0.09) }}>
+              {gameState.currentQuestionIndex + 1}
+            </div>
+            {/* Barra de progresso da questão */}
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gray-100 rounded-t-[2rem] overflow-hidden">
+              <div
+                className="h-full transition-all duration-500 ease-out rounded-full"
+                style={{
+                  width: `${((gameState.currentQuestionIndex + 1) / gameState.shuffledQuestions.length) * 100}%`,
+                  background: `linear-gradient(90deg, ${activeTheme.gradientStart}, ${activeTheme.primary})`
+                }}
+              />
+            </div>
+            <div className="relative z-10 w-full pt-2">
               <h3
-                className="text-3xl md:text-5xl lg:text-6xl font-black text-gray-800 leading-[1.2] mb-6 sm:mb-8 md:mb-10 text-center md:text-left"
+                className="font-black text-gray-800 leading-[1.25] mb-7 sm:mb-8 md:mb-10 text-center"
                 style={{ fontFamily: questionFontFamily, fontSize: responsiveQuestionFontSize }}
               >
                 {currentQuestion.question}
               </h3>
 
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 md:gap-7 ${currentOptionKeys.length > 4 ? 'lg:grid-cols-3' : ''}`}>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-5 ${currentOptionKeys.length > 4 ? 'lg:grid-cols-3' : ''}`}>
                 {currentOptionKeys.map((key) => {
                   const isHidden = gameState.hiddenOptions.includes(key);
                   const isSelected = !isAdvancingQuestion && !gameState.showExplanation && selectedOption === key && selectedQuestionId === currentQuestion.id;
-                  const isCorrect = key === currentQuestion.answer;
 
-                  let btnClass = "relative w-full text-left rounded-[1.5rem] border-4 font-bold transition-all duration-200 ease-out flex items-center ";
-                  let btnStyle: React.CSSProperties | undefined;
-                  if (isHidden) btnClass += "opacity-0 pointer-events-none";
-                  else if (isSelected) {
-                    btnStyle = { ...answerButtonStyle, backgroundColor: '#ffffff', borderColor: '#16a34a', color: '#0f172a', boxShadow: 'none' };
-                  }
-                  else {
-                    btnClass += "bg-white text-gray-700 shadow-md";
-                    btnStyle = { ...answerButtonStyle, borderColor: '#cbd5e1' };
-                  }
+                  let btnClass = "answer-btn relative w-full text-left rounded-2xl border-[3px] font-bold flex items-center ";
+                  let btnStyle: React.CSSProperties;
 
-                  if (!btnStyle) {
+                  if (isHidden) {
+                    btnClass += "opacity-0 pointer-events-none";
                     btnStyle = { ...answerButtonStyle };
+                  } else if (isSelected) {
+                    btnClass += "selected";
+                    btnStyle = {
+                      ...answerButtonStyle,
+                      backgroundColor: hexToRgba(activeTheme.primary, 0.06),
+                      borderColor: activeTheme.primary,
+                      color: '#0f172a',
+                    };
+                  } else {
+                    btnClass += "bg-white text-gray-700";
+                    btnStyle = { ...answerButtonStyle, borderColor: '#e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' };
                   }
 
                   return (
-                    <button key={key} disabled={isHidden || gameState.showExplanation} onClick={() => handleOptionClick(key)} className={btnClass} style={btnStyle}>
-                      <span className={`rounded-full flex items-center justify-center shrink-0 font-black ${isSelected ? 'text-white shadow-lg' : 'bg-gray-200 text-gray-600'}`} style={{ backgroundColor: isSelected ? activeTheme.primary : undefined, width: responsiveBadgeSize, height: responsiveBadgeSize, fontSize: responsiveBadgeFontSize }}>
+                    <button
+                      key={key}
+                      disabled={isHidden || gameState.showExplanation}
+                      onClick={() => handleOptionClick(key)}
+                      className={btnClass}
+                      style={btnStyle}
+                    >
+                      <span
+                        className="rounded-full flex items-center justify-center shrink-0 font-black transition-all duration-150"
+                        style={{
+                          backgroundColor: isSelected ? activeTheme.primary : '#f1f5f9',
+                          color: isSelected ? '#ffffff' : '#64748b',
+                          width: responsiveBadgeSize,
+                          height: responsiveBadgeSize,
+                          fontSize: responsiveBadgeFontSize,
+                          boxShadow: isSelected ? `0 4px 12px ${hexToRgba(activeTheme.primary, 0.35)}` : 'none',
+                          flexShrink: 0
+                        }}
+                      >
                         {key}
                       </span>
-                      <span className="min-w-0 leading-tight break-words" style={{ fontFamily: answerFontFamily, fontSize: responsiveAnswerFontSize, lineHeight: 1.12 }}>{currentQuestion.options[key]}</span>
+                      <span
+                        className="min-w-0 leading-tight break-words"
+                        style={{ fontFamily: answerFontFamily, fontSize: responsiveAnswerFontSize, lineHeight: 1.15 }}
+                      >
+                        {currentQuestion.options[key]}
+                      </span>
                     </button>
                   );
                 })}
@@ -3669,18 +4431,33 @@ const App: React.FC = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-wrap justify-center gap-3 md:gap-6 mb-8 w-full">
+          <div className="flex flex-wrap justify-center gap-3 md:gap-5 mb-6 w-full">
             <button
               disabled={!selectedOption}
               onClick={handleConfirm}
-              className="inline-flex flex-1 min-w-[140px] items-center justify-center bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl md:rounded-3xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-green-600 disabled:border-gray-400 active:scale-95 uppercase tracking-wide"
+              className="inline-flex flex-1 min-w-[140px] items-center justify-center text-white font-black py-3.5 md:py-4 px-6 md:px-10 rounded-2xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl active:scale-95 uppercase tracking-wide gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                background: selectedOption
+                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                  : '#d1d5db',
+                boxShadow: selectedOption
+                  ? '0 6px 0 #15803d, 0 8px 20px rgba(34,197,94,0.35)'
+                  : '0 4px 0 #9ca3af',
+              }}
             >
+              <i className="fi fi-rr-check" aria-hidden="true" />
               Confirmar
             </button>
             <button
               onClick={handleSkip}
-              className="inline-flex flex-1 min-w-[140px] items-center justify-center bg-gray-500 hover:bg-gray-600 text-white font-black py-3 md:py-4 px-6 md:px-10 rounded-2xl md:rounded-3xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl border-b-8 border-gray-600 active:scale-95 uppercase tracking-wide"
+              className="inline-flex flex-1 min-w-[120px] items-center justify-center font-black py-3.5 md:py-4 px-5 md:px-8 rounded-2xl text-sm md:text-lg transition-all duration-200 ease-out shadow-lg active:scale-95 uppercase tracking-wide gap-2"
+              style={{
+                background: 'linear-gradient(135deg, #64748b 0%, #475569 100%)',
+                color: '#ffffff',
+                boxShadow: '0 5px 0 #334155, 0 6px 16px rgba(71,85,105,0.3)',
+              }}
             >
+              <i className="fi fi-rr-forward" aria-hidden="true" />
               Passar
             </button>
           </div>
@@ -3689,46 +4466,99 @@ const App: React.FC = () => {
 
       {showTenSecondsClock && (
         <div className="fixed inset-0 z-[45] flex items-center justify-center pointer-events-none">
-          <div className="rounded-3xl px-8 py-6 md:px-12 md:py-8 bg-black/70 text-white border border-white/30 shadow-2xl backdrop-blur-md text-center">
-            <p className="text-xs md:text-sm uppercase tracking-[0.2em] opacity-80 mb-2">Tempo</p>
-            <p className="text-5xl md:text-7xl font-black leading-none">{Math.max(0, tenSecondsRemaining)}</p>
+          <div
+            className={`timer-countdown ${tenSecondsRemaining <= 3 ? 'urgent' : ''} rounded-3xl px-10 py-7 md:px-14 md:py-9 text-white text-center`}
+            style={{
+              background: tenSecondsRemaining <= 3
+                ? 'linear-gradient(135deg, rgba(185,28,28,0.92), rgba(220,38,38,0.92))'
+                : 'linear-gradient(135deg, rgba(15,23,42,0.88), rgba(30,41,59,0.88))',
+              boxShadow: tenSecondsRemaining <= 3
+                ? '0 0 0 4px rgba(239,68,68,0.4), 0 20px 60px rgba(220,38,38,0.5)'
+                : '0 0 0 2px rgba(255,255,255,0.15), 0 20px 60px rgba(0,0,0,0.5)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}
+          >
+            <p className="text-[10px] md:text-xs uppercase tracking-[0.3em] opacity-60 mb-2 font-bold">Cronômetro</p>
+            <p className="text-6xl md:text-8xl font-black leading-none tabular-nums">{Math.max(0, tenSecondsRemaining)}</p>
+            <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] opacity-50 mt-2 font-bold">segundos</p>
           </div>
         </div>
       )}
 
       {/* Help Overlays */}
       {gameState.lifelineResult && !gameState.showExplanation && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 md:p-6 z-50">
-          <div className="bg-white rounded-[2.5rem] p-10 md:p-14 max-w-2xl w-full shadow-2xl text-center border-t-[12px]" style={{ borderColor: activeTheme.primary }}>
-            {gameState.lifelineResult.type === 'plateia' && (
-              <div>
-                <h4 className="text-3xl font-black mb-10 uppercase tracking-tight" style={{ color: activeTheme.primary }}>Opinião da Plateia</h4>
-                <div className="space-y-6">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-xl flex items-center justify-center p-4 md:p-6 z-50">
+          <div className="fade-in-up bg-white rounded-3xl max-w-xl w-full shadow-2xl overflow-hidden" style={{ boxShadow: `0 32px 64px rgba(0,0,0,0.3), 0 0 0 2px ${hexToRgba(activeTheme.accent, 0.4)}` }}>
+            {/* Header */}
+            <div className="px-8 pt-7 pb-6 border-b border-gray-100 text-center" style={{ background: `linear-gradient(135deg, ${hexToRgba(activeTheme.gradientStart, 0.12)}, ${hexToRgba(activeTheme.accent, 0.18)})` }}>
+              <div className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart}, ${activeTheme.primary})` }}>
+                {gameState.lifelineResult.type === 'plateia'
+                  ? <i className="fi fi-rr-users text-white text-xl" aria-hidden="true" />
+                  : <i className="fi fi-rr-graduation-cap text-white text-xl" aria-hidden="true" />
+                }
+              </div>
+              <h4 className="text-xl md:text-2xl font-black uppercase tracking-tight" style={{ color: activeTheme.primary }}>
+                {gameState.lifelineResult.type === 'plateia' ? 'Opinião da Plateia' : 'Universitários'}
+              </h4>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 md:p-8">
+              {gameState.lifelineResult.type === 'plateia' && (
+                <div className="space-y-4">
                   {Object.entries(gameState.lifelineResult.data).map(([key, val]: [any, any]) => (
-                    <div key={key} className="flex items-center gap-6">
-                      <span className="font-bold text-2xl w-8">{key}</span>
-                      <div className="flex-grow bg-gray-100 h-8 rounded-full overflow-hidden shadow-inner">
-                        <div className="h-full transition-all duration-200 ease-out duration-1000" style={{ width: `${val}%`, backgroundColor: activeTheme.primary }}></div>
+                    <div key={key} className="flex items-center gap-4">
+                      <span className="font-black text-lg w-7 text-center shrink-0" style={{ color: activeTheme.primary }}>{key}</span>
+                      <div className="flex-grow bg-gray-100 h-6 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700 ease-out flex items-center justify-end pr-2"
+                          style={{ width: `${val}%`, background: `linear-gradient(90deg, ${activeTheme.gradientStart}, ${activeTheme.primary})`, minWidth: val > 0 ? '2rem' : '0' }}
+                        />
                       </div>
-                      <span className="font-bold w-20 text-right text-2xl" style={{ color: activeTheme.primary }}>{val}%</span>
+                      <span className="font-black w-12 text-right text-sm shrink-0" style={{ color: activeTheme.primary }}>{val}%</span>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-            {gameState.lifelineResult.type === 'universitarios' && (
-              <div>
-                <h4 className="text-3xl font-black mb-8 uppercase" style={{ color: activeTheme.primary }}>Universitários</h4>
-                <div className="p-8 rounded-3xl mb-10 text-left border-2" style={{ backgroundColor: themePrimarySoft, borderColor: activeTheme.accent }}>
-                  <p className="text-xl font-bold mb-4" style={{ color: activeTheme.primary }}>Confiança: <span className="underline" style={{ textDecorationColor: activeTheme.accent }}>{gameState.lifelineResult.data.confidence}</span></p>
-                  <p className="text-gray-700 italic text-2xl leading-relaxed">"{gameState.lifelineResult.data.reason}"</p>
+              )}
+              {gameState.lifelineResult.type === 'universitarios' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl p-5 border" style={{ backgroundColor: hexToRgba(activeTheme.accent, 0.12), borderColor: hexToRgba(activeTheme.accent, 0.35) }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs font-black uppercase tracking-wider" style={{ color: activeTheme.primary }}>Confiança:</span>
+                      <span className="font-black text-sm px-3 py-1 rounded-full text-white" style={{ background: activeTheme.primary }}>
+                        {gameState.lifelineResult.data.confidence}
+                      </span>
+                    </div>
+                    <p className="text-gray-700 italic text-base md:text-lg leading-relaxed font-semibold">
+                      "{gameState.lifelineResult.data.reason}"
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-6 mt-12">
-              <button onClick={resetToSetup} className="bg-gray-100 hover:bg-gray-200 text-gray-500 font-bold py-5 rounded-2xl text-xl uppercase transition-all duration-200 ease-out duration-200 ease-out">Inicio</button>
-              <button onClick={() => setGameState(prev => ({ ...prev, lifelineResult: null }))} className="text-white font-black py-5 rounded-2xl shadow-xl text-xl uppercase transition-all duration-200 ease-out active:scale-95" style={{ backgroundColor: activeTheme.primary }}>Voltar</button>
-                      </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 md:px-8 pb-6 md:pb-8 flex gap-3">
+              <button
+                onClick={resetToSetup}
+                className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 font-black py-3.5 rounded-2xl text-sm uppercase transition-all duration-200 active:scale-95"
+              >
+                <i className="fi fi-rr-home mr-1.5" aria-hidden="true" />
+                Início
+              </button>
+              <button
+                onClick={() => setGameState(prev => ({ ...prev, lifelineResult: null }))}
+                className="flex-[2] text-white font-black py-3.5 rounded-2xl text-sm uppercase transition-all duration-200 ease-out active:scale-95 shadow-lg"
+                style={{
+                  background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`,
+                  boxShadow: `0 4px 14px ${hexToRgba(activeTheme.primary, 0.4)}`
+                }}
+              >
+                <i className="fi fi-rr-arrow-left mr-1.5" aria-hidden="true" />
+                Voltar ao Jogo
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3737,38 +4567,110 @@ const App: React.FC = () => {
       {/* Feedback Overlay */}
       {gameState.showExplanation && (
         <div
-          className="fixed inset-0 flex items-center justify-center p-2 sm:p-4 md:p-6 z-[120]"
+          className="fixed inset-0 flex items-center justify-center p-3 sm:p-5 md:p-8 z-[120]"
           style={{
-            background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.gradientEnd} 100%)`
+            background: gameState.explanationType === 'correct'
+              ? 'linear-gradient(135deg, #064e3b 0%, #065f46 100%)'
+              : 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)'
           }}
         >
-          <div className={`relative z-[130] rounded-[1.75rem] p-4 md:p-6 max-w-xl w-full shadow-2xl border-t-[10px] transform transition-all duration-200 ease-out animate-in fade-in zoom-in duration-300 ${gameState.explanationType === 'correct' ? 'bg-green-50 border-green-500 shadow-green-200' : 'bg-red-50 border-red-500 shadow-red-200'}`}>
-            <h4 className={`text-xl md:text-2xl font-black text-center mb-3 uppercase tracking-tight ${gameState.explanationType === 'correct' ? 'text-green-700' : 'text-red-700'}`}>
-              Resultado
-            </h4>
-            <div className={`p-4 md:p-5 rounded-[1.25rem] mb-4 border-2 shadow-inner bg-white ${gameState.explanationType === 'correct' ? 'border-green-200' : 'border-red-200'}`}>
-              <p className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] mb-3 text-center ${gameState.explanationType === 'correct' ? 'text-green-600' : 'text-red-600'}`}>
-                {gameState.explanationType === 'correct' ? 'A resposta está certa' : 'A resposta está errada'}
-              </p>
-              <p className="text-gray-800 text-sm md:text-base mb-4 font-semibold leading-relaxed">
-                {gameState.explanationType === 'correct' ? 'Muito bem! ' + currentTeam.name + ' marcou ponto.' : 'Resposta incorreta. Confira a referência da questão:'}
-              </p>
-              <div className={`mb-4 rounded-2xl border-2 p-3 md:p-4 ${gameState.explanationType === 'correct' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-                <p className={`text-[10px] md:text-xs font-black uppercase tracking-[0.2em] mb-2 ${gameState.explanationType === 'correct' ? 'text-green-600' : 'text-red-600'}`}>Questão correta</p>
-                {explanationQuestion ? (
-                  <p className="text-base md:text-lg font-black text-gray-800 leading-tight mb-1">
-                    {explanationQuestion.answer}) {explanationQuestion.options[explanationQuestion.answer]}
-                  </p>
-                ) : null}
+          {/* Efeito de brilho radial de fundo */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: gameState.explanationType === 'correct'
+                ? 'radial-gradient(ellipse at 50% 30%, rgba(34,197,94,0.22) 0%, transparent 70%)'
+                : 'radial-gradient(ellipse at 50% 30%, rgba(239,68,68,0.22) 0%, transparent 70%)'
+            }}
+          />
 
+          <div className="result-overlay-enter relative z-[130] max-w-lg w-full">
+            {/* Ícone central */}
+            <div className="flex justify-center mb-6">
+              <div
+                className="result-icon w-24 h-24 md:w-28 md:h-28"
+                style={{
+                  background: gameState.explanationType === 'correct'
+                    ? 'linear-gradient(135deg, #4ade80, #16a34a)'
+                    : 'linear-gradient(135deg, #f87171, #dc2626)',
+                  boxShadow: gameState.explanationType === 'correct'
+                    ? '0 0 0 8px rgba(74,222,128,0.2), 0 20px 40px rgba(22,163,74,0.45)'
+                    : '0 0 0 8px rgba(248,113,113,0.2), 0 20px 40px rgba(220,38,38,0.45)'
+                }}
+              >
+                <i
+                  className={`text-white text-4xl md:text-5xl ${gameState.explanationType === 'correct' ? 'fi fi-rr-check' : 'fi fi-rr-cross'}`}
+                  aria-hidden="true"
+                />
               </div>
-              <p className={`font-black text-[11px] md:text-sm uppercase border-t-2 pt-3 leading-relaxed ${gameState.explanationType === 'correct' ? 'border-green-200 text-green-700' : 'border-red-200 text-red-700'}`}>
-                Fonte: {explanationQuestion?.source.reference ?? 'Referência indisponível'}
-              </p>
             </div>
-            <div className="flex items-center justify-center gap-3 md:gap-4 flex-wrap">
-              <button onClick={handleNextAction} className="inline-flex items-center justify-center text-white font-black py-3 px-5 rounded-3xl text-sm md:text-base shadow-2xl active:scale-95 transition-all duration-200 ease-out uppercase tracking-widest bg-green-500 hover:bg-green-600">Proxima</button>
-              <button onClick={resetToSetup} className="inline-flex items-center justify-center bg-gray-50 hover:bg-gray-200 text-gray-500 font-bold py-3 px-5 rounded-3xl text-sm md:text-base uppercase transition-all duration-200 ease-out duration-200 ease-out">Sair</button>
+
+            {/* Título */}
+            <h4 className={`text-2xl md:text-4xl font-black text-center mb-2 uppercase tracking-tight ${gameState.explanationType === 'correct' ? 'text-green-300' : 'text-red-300'}`}>
+              {gameState.explanationType === 'correct' ? 'Correto!' : 'Errado!'}
+            </h4>
+            <p className="text-white/70 text-center text-sm md:text-base font-semibold mb-6">
+              {gameState.explanationType === 'correct'
+                ? `Muito bem, ${currentTeam.name}! +${explanationQuestion?.points ?? pointsPerQuestion} pontos`
+                : 'Não foi dessa vez. Veja a resposta correta:'}
+            </p>
+
+            {/* Card da resposta */}
+            <div className="rounded-3xl bg-white/10 backdrop-blur-sm border border-white/20 p-5 md:p-6 mb-5">
+              <p className="text-xs font-black uppercase tracking-[0.2em] mb-3 opacity-60 text-white">Resposta Correta</p>
+              {explanationQuestion ? (
+                <div className="flex items-start gap-4">
+                  <span
+                    className="shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg font-black"
+                    style={{
+                      background: gameState.explanationType === 'correct'
+                        ? 'linear-gradient(135deg, #4ade80, #16a34a)'
+                        : 'linear-gradient(135deg, #f87171, #dc2626)',
+                      color: '#fff'
+                    }}
+                  >
+                    {explanationQuestion.answer}
+                  </span>
+                  <p className="text-lg md:text-xl font-black text-white leading-tight">
+                    {explanationQuestion.options[explanationQuestion.answer]}
+                  </p>
+                </div>
+              ) : null}
+
+              {explanationQuestion?.source?.reference && (
+                <div className="mt-4 pt-4 border-t border-white/15 flex items-center gap-2">
+                  <i className="fi fi-rr-book-alt text-white/50" aria-hidden="true" />
+                  <p className="text-xs md:text-sm font-semibold text-white/60">
+                    {explanationQuestion.source.reference}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Botões de ação */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={handleNextAction}
+                className="inline-flex flex-1 min-w-[140px] items-center justify-center gap-2 text-white font-black py-4 px-6 rounded-2xl text-sm md:text-base active:scale-95 transition-all duration-200 ease-out uppercase tracking-wider shadow-xl"
+                style={{
+                  background: gameState.explanationType === 'correct'
+                    ? 'linear-gradient(135deg, #22c55e, #15803d)'
+                    : 'linear-gradient(135deg, #ef4444, #b91c1c)',
+                  boxShadow: gameState.explanationType === 'correct'
+                    ? '0 5px 0 #14532d, 0 8px 20px rgba(34,197,94,0.4)'
+                    : '0 5px 0 #7f1d1d, 0 8px 20px rgba(239,68,68,0.4)'
+                }}
+              >
+                Próxima
+                <i className="fi fi-rr-arrow-right" aria-hidden="true" />
+              </button>
+              <button
+                onClick={resetToSetup}
+                className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white/80 font-bold py-4 px-5 rounded-2xl text-sm uppercase transition-all duration-200 ease-out active:scale-95 border border-white/20"
+              >
+                <i className="fi fi-rr-home" aria-hidden="true" />
+                Sair
+              </button>
             </div>
           </div>
         </div>
