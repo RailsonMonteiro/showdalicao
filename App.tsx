@@ -3206,7 +3206,7 @@ const App: React.FC = () => {
           <div className="flex items-center justify-between gap-2 px-3 sm:px-8 py-2.5 shadow-sm">
             {/* Logo + título */}
             <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-              <img src={showDaLicaoLogo} alt="Show da Lição" className="h-7 sm:h-10 w-auto object-contain drop-shadow" />
+              <img src={showDaLicaoLogo} alt="Show da Lição" className="h-10 sm:h-10 w-auto object-contain drop-shadow" />
               <div className="hidden sm:block h-6 w-px bg-white/30" />
               <div className="hidden sm:block">
                 <p className="text-[10px] font-normal uppercase tracking-[0.3em] text-white/60 leading-none">Painel do Professor</p>
@@ -3233,9 +3233,9 @@ const App: React.FC = () => {
               {/* Sempre visíveis: Jogar, Jogo, Ranking */}
               <button
                 onClick={() => { returnToDashboard.current = true; setShowDashboard(false); openTeamNamesModal(); }}
-                className="flex items-center gap-1.5 px-3 sm:px-2.5 py-2 min-h-[44px] sm:min-h-[36px] rounded-xl sm:rounded-lg text-sm sm:text-xs text-white/70 sm:text-white/50 hover:text-white/90 transition-colors active:scale-95"
+                className="flex items-center gap-2 sm:gap-1.5 px-4 sm:px-2.5 py-2.5 sm:py-2 min-h-[52px] sm:min-h-[36px] rounded-2xl sm:rounded-lg text-base sm:text-xs font-medium sm:font-normal text-white/80 sm:text-white/50 hover:text-white/90 hover:bg-white/10 sm:hover:bg-transparent transition-colors active:scale-95"
               >
-                <i className="fi fi-rr-gamepad text-base sm:text-sm leading-none" aria-hidden="true" />
+                <i className="fi fi-rr-gamepad text-xl sm:text-sm leading-none" aria-hidden="true" />
                 Jogar
               </button>
               <button
@@ -3259,10 +3259,11 @@ const App: React.FC = () => {
                     setSharingLink(false);
                   }
                 }}
-                className="flex items-center gap-1.5 px-3 sm:px-2.5 py-2 min-h-[44px] sm:min-h-[36px] rounded-xl sm:rounded-lg text-sm sm:text-xs text-white/70 sm:text-white/50 hover:text-white/90 transition-colors active:scale-95 disabled:opacity-40"
+                className="flex items-center gap-2 sm:gap-1.5 px-4 sm:px-2.5 py-2.5 sm:py-2 min-h-[52px] sm:min-h-[36px] rounded-2xl sm:rounded-lg text-base sm:text-xs font-medium sm:font-normal text-white/80 sm:text-white/50 hover:text-white/90 hover:bg-white/10 sm:hover:bg-transparent transition-colors active:scale-95 disabled:opacity-40"
                 title="Compartilhar link do jogo"
               >
-                <i className={`fi ${sharingLink ? 'fi-rr-spinner animate-spin' : 'fi-rr-share'} text-base sm:text-sm leading-none`} aria-hidden="true" />
+                <i className={`fi ${sharingLink ? 'fi-rr-spinner animate-spin' : 'fi-rr-share'} text-xl sm:text-sm leading-none`} aria-hidden="true" />
+                <span className="sm:hidden">Jogo</span>
                 <span className="hidden sm:inline">Jogo</span>
               </button>
               <button
