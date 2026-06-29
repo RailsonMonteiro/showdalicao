@@ -20,6 +20,7 @@ export interface Question {
     type: "licao" | "biblia";
     reference: string;
   };
+  hint?: string;
   optionCount?: number;
   points?: number;
 }
@@ -27,6 +28,7 @@ export interface Question {
 export interface Team {
   name: string;
   score: number;
+  color: string;
   lifelinesUsed: LifelineType[];
 }
 

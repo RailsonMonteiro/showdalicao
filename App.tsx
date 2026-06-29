@@ -16,6 +16,25 @@ import tenSecondsAudioTrack from './10s.mp3';
 import applauseAudioTrack from './Palmas.mp3';
 import wrongAudioTrack from './Errou.mp3';
 
+const LUCK_SEGMENTS = [
+  { label: '+10 pts',       color: '#22c55e', type: 'score', amount: 10 },
+  { label: 'Passa a vez',   color: '#f97316', type: 'pass',  amount: 0  },
+  { label: '+20 pts',       color: '#3b82f6', type: 'score', amount: 20 },
+  { label: '-10 pts',       color: '#ef4444', type: 'score', amount: -10 },
+  { label: '+30 pts',       color: '#a855f7', type: 'score', amount: 30 },
+  { label: 'Perde tudo!',   color: '#dc2626', type: 'zero',  amount: 0  },
+  { label: '+15 pts',       color: '#0ea5e9', type: 'score', amount: 15 },
+  { label: '-20 pts',       color: '#78716c', type: 'score', amount: -20 },
+] as const;
+
+const TEAM_COLORS = [
+  { label: 'Azul',     value: '#3b82f6' },
+  { label: 'Vermelho', value: '#ef4444' },
+  { label: 'Verde',    value: '#22c55e' },
+  { label: 'Roxo',     value: '#a855f7' },
+  { label: 'Laranja',  value: '#f97316' },
+];
+
 const MIN_ZOOM = 50;
 const MAX_ZOOM = 120;
 const DEFAULT_ZOOM = 90;
@@ -384,8 +403,8 @@ const App: React.FC = () => {
   const [dbSaving, setDbSaving] = useState(false);
   const [qSearch, setQSearch] = useState('');
   const [showQModal, setShowQModal] = useState(false);
-  type QDraft = { id?: number; topic: string; question: string; optA: string; optB: string; optC: string; optD: string; answer: QuestionOptionKey; sourceType: 'licao' | 'biblia'; sourceRef: string; points: number };
-  const emptyDraft = (): QDraft => ({ topic:'', question:'', optA:'', optB:'', optC:'', optD:'', answer:'A', sourceType:'licao', sourceRef:'', points:10 });
+  type QDraft = { id?: number; topic: string; question: string; optA: string; optB: string; optC: string; optD: string; answer: QuestionOptionKey; sourceType: 'licao' | 'biblia'; sourceRef: string; points: number; hint: string };
+  const emptyDraft = (): QDraft => ({ topic:'', question:'', optA:'', optB:'', optC:'', optD:'', answer:'A', sourceType:'licao', sourceRef:'', points:10, hint:'' });
   const [qDraft, setQDraft] = useState<QDraft>(emptyDraft());
   const [qDeleteId, setQDeleteId] = useState<number | null>(null);
   const [selectedQIds, setSelectedQIds] = useState<Set<number>>(new Set());
@@ -397,6 +416,17 @@ const App: React.FC = () => {
   const [importPreview, setImportPreview] = useState<any[] | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const importFileRef = React.useRef<HTMLInputElement>(null);
+  // Power-up states
+  const [showHintModal, setShowHintModal] = useState(false);
+  const [showLuckModal, setShowLuckModal] = useState(false);
+  const [ariscaHighlight, setAriscaHighlight] = useState<import('./types').QuestionOptionKey | null>(null);
+  const [ariscaDone, setAriscaDone] = useState(false);
+  const [ariscaResult, setAriscaResult] = useState<import('./types').QuestionOptionKey | null>(null);
+  const [luckRotation, setLuckRotation] = useState(0);
+  const [luckSpinning, setLuckSpinning] = useState(false);
+  const [luckResult, setLuckResult] = useState<typeof LUCK_SEGMENTS[number] | null>(null);
+  const [gamePowerUpsUsed, setGamePowerUpsUsed] = useState<Set<string>>(new Set());
+  const ariscaTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showModeSelection, setShowModeSelection] = useState(false);
   const [showLoginScreen, setShowLoginScreen] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
@@ -458,6 +488,8 @@ const App: React.FC = () => {
   });
   const [draftTeam1Name, setDraftTeam1Name] = useState('');
   const [draftTeam2Name, setDraftTeam2Name] = useState('');
+  const [draftTeam1Color, setDraftTeam1Color] = useState('#3b82f6');
+  const [draftTeam2Color, setDraftTeam2Color] = useState('#ef4444');
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[]>([]);
   const [resolvedQuestion, setResolvedQuestion] = useState<Question | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
@@ -469,8 +501,8 @@ const App: React.FC = () => {
     currentQuestionIndex: 0,
     currentTeamIndex: 0,
     teams: [
-      { name: "", score: 0, lifelinesUsed: [] },
-      { name: "", score: 0, lifelinesUsed: [] }
+      { name: "", score: 0, color: "#3b82f6", lifelinesUsed: [] },
+      { name: "", score: 0, color: "#3b82f6", lifelinesUsed: [] }
     ],
     selectedOption: null,
     showExplanation: false,
@@ -481,14 +513,16 @@ const App: React.FC = () => {
     isSoloMode: false
   });
 
-  const fetchRankings = async () => {
+  const fetchRankings = async (ownerId?: string | null) => {
+    if (!ownerId) return;
     try {
       const { data, error } = await supabase
         .from('showdalicao')
         .select('name, score, created_at')
+        .eq('owner_id', ownerId)
         .order('score', { ascending: false })
-        .limit(15);
-      
+        .limit(50);
+
       if (error) throw error;
       if (data) {
         setRankings(data.map(item => ({
@@ -503,30 +537,22 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchRankings();
-
     const isShared = new URLSearchParams(window.location.search).get('play') === 'solo';
     const token = new URLSearchParams(window.location.search).get('token');
 
     if (isShared && token) {
-      // Validate token and fetch questions for the link owner
       supabase
         .from('game_links')
         .select('user_id, created_at')
         .eq('id', token)
         .single()
         .then(({ data, error }) => {
-          if (error || !data) {
-            setSharedLinkExpired(true);
-            return;
-          }
+          if (error || !data) { setSharedLinkExpired(true); return; }
           const age = Date.now() - new Date(data.created_at).getTime();
-          if (age > 24 * 60 * 60 * 1000) {
-            setSharedLinkExpired(true);
-            return;
-          }
+          if (age > 24 * 60 * 60 * 1000) { setSharedLinkExpired(true); return; }
           setSharedLinkUserId(data.user_id);
           fetchDbQuestions(data.user_id);
+          fetchRankings(data.user_id);
         });
     }
 
@@ -537,6 +563,7 @@ const App: React.FC = () => {
         setLoggedInUserName(meta?.full_name ?? meta?.name ?? session.user.email?.split('@')[0] ?? '');
         setCurrentUserId(session.user.id);
         fetchDbQuestions(session.user.id);
+        fetchRankings(session.user.id);
       }
     });
 
@@ -547,9 +574,11 @@ const App: React.FC = () => {
         setLoggedInUserName(meta?.full_name ?? meta?.name ?? session.user.email?.split('@')[0] ?? '');
         setCurrentUserId(session.user.id);
         fetchDbQuestions(session.user.id);
+        fetchRankings(session.user.id);
       } else {
         setLoggedInUserName('');
         setCurrentUserId(null);
+        setRankings([]);
       }
     });
 
@@ -743,6 +772,7 @@ const App: React.FC = () => {
         options: { A: q.option_a, B: q.option_b, ...(q.option_c ? { C: q.option_c } : {}), ...(q.option_d ? { D: q.option_d } : {}) },
         answer: q.answer as QuestionOptionKey,
         source: { type: q.source_type ?? 'licao', reference: q.source_reference ?? '' },
+        hint: q.hint ?? '',
         points: q.points ?? 1,
       })));
     }
@@ -767,6 +797,7 @@ const App: React.FC = () => {
       answer: qDraft.answer,
       source_type: qDraft.sourceType,
       source_reference: qDraft.sourceRef.trim(),
+      hint: qDraft.hint.trim() || null,
       points: qDraft.points,
       user_id: uid,
     };
@@ -929,8 +960,8 @@ const App: React.FC = () => {
       currentQuestionIndex: 0,
       currentTeamIndex: 0,
       teams: [
-        { name, score: 0, lifelinesUsed: [] },
-        { name: 'CPU', score: 0, lifelinesUsed: [] },
+        { name, score: 0, color: draftTeam1Color, lifelinesUsed: [] },
+        { name: 'CPU', score: 0, color: '#6b7280', lifelinesUsed: [] },
       ],
       selectedOption: null,
       showExplanation: false,
@@ -1940,13 +1971,15 @@ const App: React.FC = () => {
     };
   }, [showWrongResult, effectsVolume]);
 
-  const saveRankingEntries = async (teams: Team[], forceAll = false) => {
+  const saveRankingEntries = async (teams: Team[], ownerId: string | null, forceAll = false) => {
+    if (!ownerId) return;
     const now = new Date().toISOString();
     const entries = teams
       .filter(team => team.name !== 'CPU' && (forceAll ? team.name.trim() : team.score > 0))
       .map(team => ({
         name: team.name,
         score: team.score,
+        owner_id: ownerId,
         created_at: now
       }));
 
@@ -1955,32 +1988,34 @@ const App: React.FC = () => {
     const { error } = await supabase.from('showdalicao').insert(entries);
     if (error) {
       console.error('Erro ao salvar ranking:', error.message);
-      if (error.message?.includes('row-level security') || error.code === '42501') {
-        alert('Não foi possível salvar a pontuação no ranking.\n\nO administrador precisa habilitar inserções públicas na tabela "showdalicao" no Supabase.');
-      }
     } else {
-      fetchRankings();
+      fetchRankings(ownerId);
     }
   };
 
-  const handleStartGame = (isSolo: boolean = false) => {
+  const handleStartGame = (isSolo: boolean = false, overrideNames?: { t1: string; t2: string }) => {
     stopOpeningAudio();
     setResolvedQuestion(null);
     setSelectedQuestionId(null);
     setSelectedOption(null);
     setIsAdvancingQuestion(false);
+    setGamePowerUpsUsed(new Set());
+    setLuckResult(null);
+    setAriscaDone(false);
+    setAriscaHighlight(null);
+    setAriscaResult(null);
 
-    const t1Name = isSolo ? (draftSoloName.trim() || 'Jogador') : draftTeam1Name.trim();
-    const t2Name = isSolo ? 'CPU' : draftTeam2Name.trim();
+    const t1Name = isSolo ? (draftSoloName.trim() || 'Jogador') : (overrideNames?.t1 ?? (draftTeam1Name.trim() || 'Equipe 1'));
+    const t2Name = isSolo ? 'CPU' : (overrideNames?.t2 ?? (draftTeam2Name.trim() || 'Equipe 2'));
 
-    setGameState(prev => ({ 
-      ...prev, 
-      mode: 'playing', 
+    setGameState(prev => ({
+      ...prev,
+      mode: 'playing',
       currentQuestionIndex: 0,
       currentTeamIndex: 0,
       teams: [
-        { name: t1Name, score: 0, lifelinesUsed: [] },
-        { name: t2Name, score: 0, lifelinesUsed: [] }
+        { name: t1Name, score: 0, color: draftTeam1Color, lifelinesUsed: [] },
+        { name: t2Name, score: 0, color: isSolo ? '#6b7280' : draftTeam2Color, lifelinesUsed: [] }
       ],
       selectedOption: null,
       showExplanation: false,
@@ -2023,7 +2058,15 @@ const App: React.FC = () => {
     });
   };
 
+  const clearAriscaState = () => {
+    if (ariscaTimerRef.current) clearTimeout(ariscaTimerRef.current);
+    setAriscaHighlight(null);
+    setAriscaResult(null);
+    setAriscaDone(false);
+  };
+
   const handleSkip = () => {
+    clearAriscaState();
     setResolvedQuestion(null);
     setSelectedQuestionId(null);
     setSelectedOption(null);
@@ -2044,7 +2087,77 @@ const App: React.FC = () => {
     }
   };
 
+  // ─── Power-up handlers ───────────────────────────────────────────────────────
+
+  const handleArisca = (visibleKeys: import('./types').QuestionOptionKey[]) => {
+    if (ariscaTimerRef.current) clearTimeout(ariscaTimerRef.current);
+    setAriscaDone(false);
+    setAriscaResult(null);
+    setAriscaHighlight(null);
+    const finalKey = visibleKeys[Math.floor(Math.random() * visibleKeys.length)];
+    const totalSteps = 22 + Math.floor(Math.random() * 10);
+    let step = 0;
+    const schedule = (delay: number) => {
+      ariscaTimerRef.current = setTimeout(() => {
+        step++;
+        const key = visibleKeys[step % visibleKeys.length];
+        setAriscaHighlight(key);
+        if (step < totalSteps) {
+          const nextDelay = Math.min(delay + (step > totalSteps * 0.55 ? 28 : 8), 420);
+          schedule(nextDelay);
+        } else {
+          setAriscaHighlight(finalKey);
+          setAriscaResult(finalKey);
+          setAriscaDone(true);
+          // Auto-select the landed answer
+          setSelectedOption(finalKey);
+        }
+      }, delay);
+    };
+    schedule(55);
+  };
+
+  const handleLuckSpin = () => {
+    if (luckSpinning) return;
+    const targetIdx = Math.floor(Math.random() * LUCK_SEGMENTS.length);
+    const segAngle = 360 / LUCK_SEGMENTS.length;
+    // Pointer is at top (270° in SVG coords); calculate rotation so target segment faces pointer
+    const targetCenter = targetIdx * segAngle + segAngle / 2;
+    const extraSpins = (5 + Math.floor(Math.random() * 3)) * 360;
+    const finalRotation = luckRotation + extraSpins + (360 - targetCenter);
+    setLuckSpinning(true);
+    setLuckResult(null);
+    setLuckRotation(finalRotation);
+    setTimeout(() => {
+      setLuckSpinning(false);
+      setLuckResult(LUCK_SEGMENTS[targetIdx]);
+    }, 4200);
+  };
+
+  const handleApplyLuck = () => {
+    if (!luckResult) return;
+    const idx = gameState.currentTeamIndex;
+    if (luckResult.type === 'zero') {
+      setGameState(prev => {
+        const t = [...prev.teams] as [import('./types').Team, import('./types').Team];
+        t[idx] = { ...t[idx], score: 0 };
+        return { ...prev, teams: t };
+      });
+    } else if (luckResult.type === 'score') {
+      setGameState(prev => {
+        const t = [...prev.teams] as [import('./types').Team, import('./types').Team];
+        t[idx] = { ...t[idx], score: Math.max(0, t[idx].score + luckResult.amount) };
+        return { ...prev, teams: t };
+      });
+    }
+    setShowLuckModal(false);
+    setLuckResult(null);
+    // Girar a roleta custa a vez — avança para o próximo jogador
+    handleSkip();
+  };
+
   const handleNextAction = () => {
+    clearAriscaState();
     if (gameState.currentQuestionIndex === gameState.shuffledQuestions.length - 1) {
       setResolvedQuestion(null);
       setSelectedQuestionId(null);
@@ -2140,8 +2253,8 @@ const App: React.FC = () => {
       currentQuestionIndex: 0,
       currentTeamIndex: 0,
       teams: [
-        { name: "Equipe 1", score: 0, lifelinesUsed: [] },
-        { name: "Equipe 2", score: 0, lifelinesUsed: [] }
+        { name: "Equipe 1", score: 0, color: "#3b82f6", lifelinesUsed: [] },
+        { name: "Equipe 2", score: 0, color: "#ef4444", lifelinesUsed: [] }
       ],
       selectedOption: null,
       showExplanation: false,
@@ -2168,16 +2281,20 @@ const App: React.FC = () => {
   const openTeamNamesModal = () => {
     setDraftTeam1Name(gameState.teams[0].name);
     setDraftTeam2Name(gameState.teams[1].name);
+    setDraftTeam1Color(gameState.teams[0].color || '#3b82f6');
+    setDraftTeam2Color(gameState.teams[1].color || '#ef4444');
     setShowTeamNamesModal(true);
   };
 
   const saveTeamNames = () => {
-    const team1 = draftTeam1Name.trim();
-    const team2 = draftTeam2Name.trim();
+    const team1 = TEAM_COLORS.find(c => c.value === draftTeam1Color)?.label ?? 'Equipe 1';
+    const team2 = TEAM_COLORS.find(c => c.value === draftTeam2Color)?.label ?? 'Equipe 2';
+    setDraftTeam1Name(team1);
+    setDraftTeam2Name(team2);
     updateTeamName(0, team1);
     updateTeamName(1, team2);
     setShowTeamNamesModal(false);
-    handleStartGame();
+    handleStartGame(false, { t1: team1, t2: team2 });
   };
 
 
@@ -3144,13 +3261,32 @@ const App: React.FC = () => {
                   <h2 className="text-2xl sm:text-3xl font-black uppercase text-white leading-none" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>Ranking</h2>
                 </div>
               </div>
-              <div className="absolute top-2 right-2 z-10">
+              <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                {isAdmin && (
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('Tem certeza que deseja apagar seu ranking?')) {
+                        try {
+                          const { data: { user: authUser } } = await supabase.auth.getUser();
+                          if (!authUser) return;
+                          const { error } = await supabase.from('showdalicao').delete().eq('owner_id', authUser.id);
+                          if (error) throw error;
+                          fetchRankings(authUser.id);
+                        } catch (err) { console.error('Error clearing rankings:', err); }
+                      }
+                    }}
+                    className="w-10 h-10 flex items-center justify-center text-white/40 hover:text-red-400 active:scale-90 transition-colors duration-150"
+                    title="Limpar ranking"
+                  >
+                    <i className="fi fi-rr-broom text-lg leading-none" aria-hidden="true" />
+                  </button>
+                )}
                 <button
                   onClick={() => setShowRanking(false)}
-                  className="w-8 h-8 flex items-center justify-center text-white/60 hover:text-red-400 active:scale-90 transition-colors duration-150"
+                  className="w-10 h-10 flex items-center justify-center text-white/60 hover:text-red-400 active:scale-90 transition-colors duration-150"
                   aria-label="Fechar ranking"
                 >
-                  <i className="fi fi-rr-cross text-sm leading-none" aria-hidden="true" />
+                  <i className="fi fi-rr-cross text-lg leading-none" aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -3247,28 +3383,6 @@ const App: React.FC = () => {
                   )}
                 </div>
               </>
-            )}
-
-            {isAdmin && (
-              <div className="flex-shrink-0 flex items-center justify-end px-5 sm:px-8 py-3" style={{ background: 'rgba(0,0,0,0.25)', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <button
-                  onClick={async () => {
-                    if (window.confirm('Tem certeza que deseja apagar TODO o ranking?')) {
-                      try {
-                        const { error } = await supabase.from('showdalicao').delete().neq('id', 0);
-                        if (error) throw error;
-                        fetchRankings();
-                      } catch (err) {
-                        console.error('Error clearing rankings:', err);
-                      }
-                    }
-                  }}
-                  className="flex items-center gap-2 py-2.5 px-5 rounded-xl font-black uppercase text-xs text-red-400/80 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 active:scale-95"
-                  style={{ border: '1px solid rgba(239,68,68,0.18)' }}
-                >
-                  <i className="fi fi-rr-broom" aria-hidden="true" />
-                </button>
-              </div>
             )}
           </div>
           );
@@ -3589,7 +3703,7 @@ const App: React.FC = () => {
                             setQDraft({
                               id: q.id, topic: q.topic, question: q.question,
                               optA: q.options.A ?? '', optB: q.options.B ?? '', optC: q.options.C ?? '', optD: q.options.D ?? '',
-                              answer: q.answer, sourceType: q.source.type, sourceRef: q.source.reference, points: q.points ?? 1,
+                              answer: q.answer, sourceType: q.source.type, sourceRef: q.source.reference, points: q.points ?? 1, hint: q.hint ?? '',
                             });
                             setShowQModal(true);
                           }}
@@ -3682,7 +3796,7 @@ const App: React.FC = () => {
                     <input className={inputCls} value={qDraft.sourceRef} onChange={e => setQDraft(d => ({ ...d, sourceRef: e.target.value }))} placeholder="Ex: Lição 1, Lucas 18:9" />
                   </div>
                 </div>
-                <div className="w-28">
+                <div className="w-28 shrink-0">
                   <label className={labelCls}>Pontos</label>
                   <input
                     type="number" min={10} max={1000} step={10}
@@ -3692,6 +3806,15 @@ const App: React.FC = () => {
                       const raw = Number(e.target.value);
                       setQDraft(d => ({ ...d, points: Math.round(raw / 10) * 10 || 10 }));
                     }}
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className={labelCls}>Dica <span className="normal-case font-normal text-gray-400">(opcional)</span></label>
+                  <input
+                    className={inputCls}
+                    value={qDraft.hint}
+                    onChange={e => setQDraft(d => ({ ...d, hint: e.target.value }))}
+                    placeholder="Ex: Resposta está no cap. 5..."
                   />
                 </div>
               </div>
@@ -4386,16 +4509,6 @@ const App: React.FC = () => {
               <div className="h-px flex-1" style={{ background: 'rgba(255,255,255,0.2)' }} />
             </div>
 
-            {/* Botão ranking */}
-            <button
-              onClick={() => setShowRanking(true)}
-              className="group inline-flex items-center gap-2.5 text-white/75 hover:text-white font-black py-2.5 px-6 rounded-2xl transition-all duration-200 ease-out active:scale-95 w-full justify-center"
-              style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}
-              title="Ranking"
-            >
-              <img src={trofeuIcon} alt="Troféu" className="w-6 h-6 object-contain drop-shadow transition-transform duration-200 group-hover:scale-115" />
-              <span className="text-sm uppercase tracking-[0.25em]">Ranking</span>
-            </button>
           </div>
 
         </div>
@@ -4486,35 +4599,88 @@ const App: React.FC = () => {
 
         {showTeamNamesModal && (
           <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl" style={{ borderTop: `4px solid ${activeTheme.accent}` }}>
+            <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden" style={{ boxShadow: `0 32px 64px rgba(0,0,0,0.22), 0 0 0 1px ${hexToRgba(activeTheme.accent, 0.3)}` }}>
 
-              <div className="px-6 pt-6 pb-7">
-                <p className="text-base sm:text-sm uppercase font-black mb-5 sm:mb-4" style={{ color: activeTheme.primary }}>Alterar Nome de Equipes</p>
-
-                <div className="space-y-5 sm:space-y-4 mb-7 sm:mb-6">
-                  <div>
-                    <label className="block text-xs uppercase font-black text-gray-500 mb-2">Equipe 1</label>
-                    <input
-                      type="text"
-                      value={draftTeam1Name}
-                      onChange={(e) => setDraftTeam1Name(e.target.value)}
-                      className="w-full rounded-2xl sm:rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 sm:py-3 text-base font-semibold text-gray-800 outline-none focus:border-blue-300 transition-colors"
-                      placeholder="Nome da Equipe 1..."
-                    />
+              {/* Header colorido */}
+              <div className="px-6 pt-6 pb-5 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}>
+                <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-10" style={{ background: '#fff', transform: 'translate(30%, -30%)' }} />
+                <div className="flex items-center gap-3 relative z-10">
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(4px)' }}>
+                    <i className="fi fi-rr-shield text-white text-xl leading-none" aria-hidden="true" />
                   </div>
                   <div>
-                    <label className="block text-xs uppercase font-black text-gray-500 mb-2">Equipe 2</label>
-                    <input
-                      type="text"
-                      value={draftTeam2Name}
-                      onChange={(e) => setDraftTeam2Name(e.target.value)}
-                      className="w-full rounded-2xl sm:rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 sm:py-3 text-base font-semibold text-gray-800 outline-none focus:border-blue-300 transition-colors"
-                      placeholder="Nome da Equipe 2..."
-                    />
+                    <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/60 leading-none mb-0.5">Configurar</p>
+                    <h3 className="text-lg font-black text-white leading-tight">Nome das Equipes</h3>
+                  </div>
+                </div>
+              </div>
+
+              {/* Corpo */}
+              <div className="px-6 py-5">
+                <div className="space-y-4 mb-6">
+
+                  {/* Equipe 1 */}
+                  <div className="rounded-2xl border-2 px-4 py-4 transition-all" style={{ borderColor: draftTeam1Color, background: `${draftTeam1Color}0d` }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: draftTeam1Color }}>1</div>
+                      <p className="text-sm font-black uppercase tracking-wider" style={{ color: draftTeam1Color }}>
+                        Equipe — {TEAM_COLORS.find(c => c.value === draftTeam1Color)?.label}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 justify-center">
+                      {TEAM_COLORS.map(c => (
+                        <button
+                          key={c.value}
+                          title={c.label}
+                          onClick={() => { setDraftTeam1Color(c.value); setDraftTeam1Name(c.label); }}
+                          className="relative flex items-center justify-center transition-all duration-200 active:scale-90 shrink-0"
+                          style={{ width: 53, height: 30, borderRadius: '50%', background: c.value, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}
+                        >
+                          {draftTeam1Color === c.value && (
+                            <i className="fi fi-rr-check text-white text-sm leading-none" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }} aria-hidden="true" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* VS divisor */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-gray-100" />
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.08), border: `1.5px solid ${hexToRgba(activeTheme.primary, 0.15)}` }}>
+                      <i className="fi fi-rr-swords text-xs leading-none" style={{ color: activeTheme.primary, opacity: 0.5 }} aria-hidden="true" />
+                    </div>
+                    <div className="flex-1 h-px bg-gray-100" />
+                  </div>
+
+                  {/* Equipe 2 */}
+                  <div className="rounded-2xl border-2 px-4 py-4 transition-all" style={{ borderColor: draftTeam2Color, background: `${draftTeam2Color}0d` }}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: draftTeam2Color }}>2</div>
+                      <p className="text-sm font-black uppercase tracking-wider" style={{ color: draftTeam2Color }}>
+                        Equipe — {TEAM_COLORS.find(c => c.value === draftTeam2Color)?.label}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 justify-center">
+                      {TEAM_COLORS.map(c => (
+                        <button
+                          key={c.value}
+                          title={c.label}
+                          onClick={() => { setDraftTeam2Color(c.value); setDraftTeam2Name(c.label); }}
+                          className="relative flex items-center justify-center transition-all duration-200 active:scale-90 shrink-0"
+                          style={{ width: 53, height: 30, borderRadius: '50%', background: c.value, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}
+                        >
+                          {draftTeam2Color === c.value && (
+                            <i className="fi fi-rr-check text-white text-sm leading-none" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }} aria-hidden="true" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                {/* Botões */}
+                <div className="flex items-center gap-2.5">
                   <button
                     onClick={() => {
                       setShowTeamNamesModal(false);
@@ -4523,17 +4689,19 @@ const App: React.FC = () => {
                         setShowDashboard(true);
                       }
                     }}
-                    className="flex-1 sm:flex-none rounded-2xl sm:rounded-xl px-5 py-4 sm:py-3 bg-gray-100 text-gray-700 font-black uppercase text-base sm:text-sm active:scale-95 transition-all"
+                    className="flex items-center justify-center gap-2 flex-1 py-3.5 rounded-2xl font-black uppercase text-sm transition-all active:scale-95 bg-gray-100 text-gray-500 hover:bg-gray-150"
                   >
+                    <i className="fi fi-rr-cross-small text-base leading-none" aria-hidden="true" />
                     Fechar
                   </button>
                   <button
                     onClick={saveTeamNames}
-                    disabled={!draftTeam1Name.trim() || !draftTeam2Name.trim()}
-                    className="flex-1 rounded-2xl sm:rounded-xl px-5 py-4 sm:py-3 text-white font-black uppercase text-base sm:text-sm shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:grayscale"
-                    style={{ backgroundColor: activeTheme.primary }}
+                    disabled={draftTeam1Color === draftTeam2Color}
+                    className="flex items-center justify-center gap-2 flex-[2] py-3.5 rounded-2xl text-white font-black uppercase text-sm shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: `linear-gradient(135deg, ${draftTeam1Color} 0%, ${draftTeam2Color} 100%)`, boxShadow: `0 6px 20px rgba(0,0,0,0.2)` }}
                   >
-                    Confirmar
+                    <i className="fi fi-rr-play text-sm leading-none" aria-hidden="true" />
+                    Iniciar Jogo
                   </button>
                 </div>
               </div>
@@ -4557,7 +4725,10 @@ const App: React.FC = () => {
 
     const handleFinalize = async () => {
       if (gameState.isSoloMode) {
-        await saveRankingEntries(gameState.teams, isSharedSoloGame);
+        const ownerId = isSharedSoloGame
+          ? sharedLinkUserId
+          : (await supabase.auth.getUser()).data.user?.id ?? null;
+        await saveRankingEntries(gameState.teams, ownerId, isSharedSoloGame);
       }
       window.location.reload();
     };
@@ -4679,19 +4850,32 @@ const App: React.FC = () => {
           {!gameState.isSoloMode && (
             <div className="sticky top-[76px] sm:top-[92px] md:top-[106px] z-30 relative mb-4 sm:mb-6">
               <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch gap-2 md:gap-4">
-                <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
-                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[0].name}</p>
-                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[0].score} pts</p>
-                </div>
-
-                <div className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 backdrop-blur-sm border-0 flex items-center justify-center">
-                  <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none opacity-70" aria-hidden="true" />
-                </div>
-
-                <div className="min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-200 ease-out flex flex-col items-center justify-center bg-white/20 text-white border-white/10">
-                  <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-85 truncate leading-none mb-1">{gameState.teams[1].name}</p>
-                  <p className="text-sm sm:text-base md:text-lg font-black leading-none">{gameState.teams[1].score} pts</p>
-                </div>
+                {gameState.teams.map((team, idx) => {
+                  const isActive = gameState.currentTeamIndex === idx;
+                  const isLast = idx === 1;
+                  return (
+                    <React.Fragment key={idx}>
+                      <div
+                        className={`min-w-0 h-[58px] sm:h-[72px] md:h-[88px] px-2 sm:px-3 rounded-2xl text-center border-2 transition-all duration-300 ease-out flex flex-col items-center justify-center ${isActive ? 'scale-[1.03]' : 'opacity-60'}`}
+                        style={{
+                          background: isActive ? team.color : 'rgba(255,255,255,0.12)',
+                          borderColor: isActive ? team.color : 'rgba(255,255,255,0.1)',
+                          boxShadow: isActive ? `0 4px 20px ${team.color}55` : 'none',
+                          color: '#fff',
+                          order: isLast ? 2 : 0,
+                        }}
+                      >
+                        <p className="text-xs sm:text-sm md:text-base font-black uppercase opacity-90 truncate leading-none mb-1">{team.name}</p>
+                        <p className="text-sm sm:text-base md:text-lg font-black leading-none">{team.score} pts</p>
+                      </div>
+                      {!isLast && (
+                        <div className="h-[58px] sm:h-[72px] md:h-[88px] min-w-[58px] sm:min-w-[72px] md:min-w-[88px] px-2 sm:px-3 rounded-2xl bg-white/20 backdrop-blur-sm border-0 flex items-center justify-center" style={{ order: 1 }}>
+                          <i className="fi fi-ts-time-forward-ten icon-font-black text-[34px] md:text-[38px] leading-none opacity-70" aria-hidden="true" />
+                        </div>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -4711,7 +4895,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {questionOptionsPanel}
         {updateDialog}
         {appFooter}
         {loginModal}
@@ -4733,39 +4916,58 @@ const App: React.FC = () => {
         style={{ transform: isMobile ? 'none' : `scale(${gameZoomLevel / 100})`, transformOrigin: 'center top' }}
       >
       {/* Header Info */}
-      <div className="sticky top-[6px] z-40 flex flex-nowrap justify-between items-center gap-2 mb-3 bg-black/25 p-2 sm:p-3 md:p-4 rounded-2xl md:rounded-3xl backdrop-blur-md text-white border border-white/20 shadow-2xl">
-        <button
-          onClick={resetToSetup}
-          className="inline-flex items-center justify-center gap-1.5 text-white font-black px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase transition-all duration-200 ease-out active:scale-90 border border-white/25 hover:bg-white/15"
-          style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
-        >
-          <i className="fi fi-rr-home text-xs" aria-hidden="true" />
-          <span className="hidden sm:inline">Início</span>
-        </button>
+      <div className="sticky top-[6px] z-40 mb-3">
+        <div className="flex flex-nowrap justify-between items-center gap-2 bg-black/30 px-2 sm:px-3 py-2 sm:py-2.5 rounded-2xl backdrop-blur-md text-white border border-white/15 shadow-2xl">
+          {/* Botão início */}
+          <button
+            onClick={resetToSetup}
+            className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-90 hover:bg-white/20"
+            style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}
+            title="Início"
+          >
+            <i className="fi fi-rr-home text-sm leading-none" aria-hidden="true" />
+          </button>
 
-        <div className="text-center flex-1 min-w-0 px-2">
-          <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 mb-0.5">
-            {gameState.isSoloMode ? 'Pontuação' : 'Vez da Equipe'}
-          </p>
-          <p className="text-base sm:text-xl md:text-2xl font-black leading-none truncate" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
-            {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {gameState.isSoloMode && (
-            <button
-              onClick={handleTenSecondsTimer}
-              className="w-9 h-9 md:w-10 md:h-10 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 flex items-center justify-center transition-all duration-200 active:scale-90"
-              title="Iniciar cronômetro de 10s"
-            >
-              <i className="fi fi-ts-time-forward-ten text-sm md:text-base" aria-hidden="true" />
-            </button>
-          )}
-          <div className="bg-white/15 border border-white/20 rounded-xl px-3 py-1.5 text-center min-w-[60px]">
-            <p className="text-[8px] sm:text-[10px] font-bold uppercase tracking-wider opacity-60 leading-none mb-0.5">Questão</p>
-            <p className="text-sm sm:text-lg font-black leading-none">{gameState.currentQuestionIndex + 1}/{gameState.shuffledQuestions.length}</p>
+          {/* Centro */}
+          <div className="flex-1 min-w-0 flex flex-col items-center">
+            <p className="text-[8px] font-black uppercase tracking-[0.3em] opacity-40 leading-none mb-0.5">
+              {gameState.isSoloMode ? 'Pontuação' : 'Vez da Equipe'}
+            </p>
+            <div className="flex items-center gap-2">
+              {!gameState.isSoloMode && (
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: currentTeam.color, boxShadow: `0 0 6px ${currentTeam.color}` }} />
+              )}
+              <p className="text-base sm:text-xl font-black leading-none truncate" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
+                {gameState.isSoloMode ? `${gameState.teams[0].score} pts` : currentTeam.name}
+              </p>
+            </div>
           </div>
+
+          {/* Direita */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {gameState.isSoloMode && (
+              <button
+                onClick={handleTenSecondsTimer}
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center transition-all active:scale-90"
+                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}
+                title="Cronômetro 10s"
+              >
+                <i className="fi fi-ts-time-forward-ten text-base leading-none" aria-hidden="true" />
+              </button>
+            )}
+            {/* Contador de questão */}
+            <div className="flex flex-col items-center justify-center rounded-xl px-3 py-1.5 min-w-[52px]" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.18)' }}>
+              <p className="text-[7px] font-black uppercase tracking-wider opacity-50 leading-none mb-0.5">Q</p>
+              <p className="text-sm sm:text-base font-black leading-none tabular-nums">{gameState.currentQuestionIndex + 1}<span className="opacity-40 text-xs">/{gameState.shuffledQuestions.length}</span></p>
+            </div>
+          </div>
+        </div>
+        {/* Barra de progresso das questões */}
+        <div className="mx-2 h-1 rounded-full overflow-hidden mt-1.5" style={{ background: 'rgba(0,0,0,0.2)' }}>
+          <div
+            className="h-full rounded-full transition-all duration-500 ease-out"
+            style={{ width: `${((gameState.currentQuestionIndex + 1) / gameState.shuffledQuestions.length) * 100}%`, background: `linear-gradient(90deg, ${activeTheme.gradientStart}, ${activeTheme.accent})` }}
+          />
         </div>
       </div>
 
@@ -4781,42 +4983,52 @@ const App: React.FC = () => {
 
               return (
                 <>
+                  {/* Equipe 1 */}
                   <div
-                    className={`min-w-0 h-[52px] sm:h-[68px] md:h-[80px] px-2 sm:px-4 rounded-2xl text-center border-2 transition-all duration-300 ease-out flex flex-col items-center justify-center ${isTeam1Active ? 'scale-[1.03]' : 'bg-black/20 text-white border-white/10'}`}
-                    style={isTeam1Active ? {
-                      background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`,
-                      borderColor: 'rgba(255,255,255,0.45)',
-                      color: '#fff',
-                      boxShadow: `0 0 0 3px ${hexToRgba(activeTheme.primary, 0.4)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.4)}`
-                    } : undefined}
+                    className="min-w-0 h-[60px] sm:h-[72px] md:h-[84px] px-3 sm:px-4 rounded-2xl text-white flex items-center gap-2 sm:gap-3 transition-all duration-300 ease-out overflow-hidden relative"
+                    style={{
+                      background: isTeam1Active ? team1.color : 'rgba(0,0,0,0.22)',
+                      border: isTeam1Active ? `2px solid rgba(255,255,255,0.35)` : '2px solid rgba(255,255,255,0.08)',
+                      boxShadow: isTeam1Active ? `0 0 24px ${team1.color}88, 0 4px 12px rgba(0,0,0,0.2)` : 'none',
+                      transform: isTeam1Active ? 'scale(1.03)' : 'scale(1)',
+                    }}
                   >
-                    <p className="text-[9px] sm:text-xs md:text-sm font-black uppercase truncate leading-none mb-0.5 md:mb-1 opacity-85 w-full">{team1.name}</p>
-                    <p className="text-sm sm:text-lg md:text-xl font-black leading-none">{team1.score}</p>
-                    <p className="text-[7px] sm:text-[9px] font-bold uppercase opacity-50 leading-none mt-0.5">pts</p>
+                    {/* Bolinha colorida */}
+                    <div className="w-2 h-2 rounded-full shrink-0 hidden sm:block" style={{ background: isTeam1Active ? 'rgba(255,255,255,0.6)' : team1.color, boxShadow: isTeam1Active ? 'none' : `0 0 6px ${team1.color}` }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-wide opacity-75 leading-none truncate">{team1.name}</p>
+                      <p className="text-lg sm:text-2xl font-black leading-none tabular-nums mt-0.5">{team1.score}<span className="text-[9px] opacity-50 ml-1">pts</span></p>
+                    </div>
+                    {isTeam1Active && <i className="fi fi-rr-angle-right text-white/30 text-xs shrink-0" aria-hidden="true" />}
                   </div>
 
+                  {/* Botão cronômetro central */}
                   <button
                     onClick={handleTenSecondsTimer}
-                    className="h-[52px] sm:h-[68px] md:h-[80px] min-w-[52px] sm:min-w-[68px] md:min-w-[80px] px-2 sm:px-3 rounded-2xl bg-black/25 hover:bg-black/35 backdrop-blur-sm border border-white/15 flex flex-col items-center justify-center gap-1 transition-all duration-200 ease-out active:scale-90"
-                    aria-label="Iniciar contador de 10 segundos"
-                    title="Cronômetro 10s"
+                    className="h-[60px] sm:h-[72px] md:h-[84px] min-w-[60px] sm:min-w-[72px] md:min-w-[84px] rounded-2xl backdrop-blur-sm flex flex-col items-center justify-center gap-0.5 transition-all duration-200 active:scale-90 hover:bg-white/20"
+                    style={{ background: 'rgba(255,255,255,0.1)', border: '2px solid rgba(255,255,255,0.12)' }}
+                    aria-label="Cronômetro 10s"
                   >
-                    <i className="fi fi-ts-time-forward-ten text-white text-[22px] md:text-[30px] leading-none" aria-hidden="true" />
-                    <span className="text-[7px] font-black text-white/50 uppercase tracking-wider hidden sm:block">10s</span>
+                    <i className="fi fi-ts-time-forward-ten text-white text-2xl sm:text-3xl leading-none" aria-hidden="true" />
+                    <span className="text-[8px] font-black text-white/40 uppercase tracking-wider">10s</span>
                   </button>
 
+                  {/* Equipe 2 */}
                   <div
-                    className={`min-w-0 h-[52px] sm:h-[68px] md:h-[80px] px-2 sm:px-4 rounded-2xl text-center border-2 transition-all duration-300 ease-out flex flex-col items-center justify-center ${isTeam2Active ? 'scale-[1.03]' : 'bg-black/20 text-white border-white/10'}`}
-                    style={isTeam2Active ? {
-                      background: `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`,
-                      borderColor: 'rgba(255,255,255,0.45)',
-                      color: '#fff',
-                      boxShadow: `0 0 0 3px ${hexToRgba(activeTheme.primary, 0.4)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.4)}`
-                    } : undefined}
+                    className="min-w-0 h-[60px] sm:h-[72px] md:h-[84px] px-3 sm:px-4 rounded-2xl text-white flex items-center gap-2 sm:gap-3 transition-all duration-300 ease-out overflow-hidden justify-end relative"
+                    style={{
+                      background: isTeam2Active ? team2.color : 'rgba(0,0,0,0.22)',
+                      border: isTeam2Active ? `2px solid rgba(255,255,255,0.35)` : '2px solid rgba(255,255,255,0.08)',
+                      boxShadow: isTeam2Active ? `0 0 24px ${team2.color}88, 0 4px 12px rgba(0,0,0,0.2)` : 'none',
+                      transform: isTeam2Active ? 'scale(1.03)' : 'scale(1)',
+                    }}
                   >
-                    <p className="text-[9px] sm:text-xs md:text-sm font-black uppercase truncate leading-none mb-0.5 md:mb-1 opacity-85 w-full">{team2.name}</p>
-                    <p className="text-sm sm:text-lg md:text-xl font-black leading-none">{team2.score}</p>
-                    <p className="text-[7px] sm:text-[9px] font-bold uppercase opacity-50 leading-none mt-0.5">pts</p>
+                    {isTeam2Active && <i className="fi fi-rr-angle-left text-white/30 text-xs shrink-0" aria-hidden="true" />}
+                    <div className="flex-1 min-w-0 text-right">
+                      <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-wide opacity-75 leading-none truncate">{team2.name}</p>
+                      <p className="text-lg sm:text-2xl font-black leading-none tabular-nums mt-0.5">{team2.score}<span className="text-[9px] opacity-50 ml-1">pts</span></p>
+                    </div>
+                    <div className="w-2 h-2 rounded-full shrink-0 hidden sm:block" style={{ background: isTeam2Active ? 'rgba(255,255,255,0.6)' : team2.color, boxShadow: isTeam2Active ? 'none' : `0 0 6px ${team2.color}` }} />
                   </div>
                 </>
               );
@@ -5143,81 +5355,113 @@ const App: React.FC = () => {
       ) : (
         <>
           {/* Main Question Area */}
-          <div className="question-card mt-3 sm:mt-0 bg-white rounded-[2rem] shadow-2xl p-5 sm:p-6 md:p-10 xl:p-12 mb-5 sm:mb-6 flex-grow border-b-[10px] relative overflow-hidden flex flex-col justify-center" style={{ borderColor: activeTheme.accent, ['--card-accent' as any]: activeTheme.accent }}>
-            {/* Número da questão decorativo */}
-            <div className="absolute top-4 right-6 font-black text-[5rem] md:text-[9rem] leading-none pointer-events-none select-none" style={{ color: hexToRgba(activeTheme.accent, 0.09) }}>
+          {/* Card da pergunta */}
+          <div className="question-card mt-2 sm:mt-0 mb-4 sm:mb-5 flex-grow relative overflow-hidden flex flex-col justify-center rounded-3xl"
+            style={{
+              background: 'rgba(255,255,255,0.97)',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08)',
+              ['--card-accent' as any]: activeTheme.accent,
+            }}
+          >
+            {/* Faixa colorida topo */}
+            <div className="h-1.5 w-full rounded-t-3xl" style={{ background: `linear-gradient(90deg, ${activeTheme.gradientStart}, ${activeTheme.accent})` }} />
+
+
+            {/* Número decorativo de fundo */}
+            <div className="absolute bottom-2 right-4 font-black leading-none pointer-events-none select-none text-[7rem] md:text-[9rem]" style={{ color: hexToRgba(activeTheme.accent, 0.06) }}>
               {gameState.currentQuestionIndex + 1}
             </div>
-            {/* Barra de progresso da questão */}
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gray-100 rounded-t-[2rem] overflow-hidden">
-              <div
-                className="h-full transition-all duration-500 ease-out rounded-full"
-                style={{
-                  width: `${((gameState.currentQuestionIndex + 1) / gameState.shuffledQuestions.length) * 100}%`,
-                  background: `linear-gradient(90deg, ${activeTheme.gradientStart}, ${activeTheme.primary})`
-                }}
-              />
-            </div>
-            <div className="relative z-10 w-full pt-2">
+
+            <div className="relative z-10 px-5 sm:px-7 md:px-10 pt-10 pb-6 sm:pb-8">
               <h3
-                className="font-black text-gray-800 leading-[1.25] mb-7 sm:mb-8 md:mb-10 text-center"
+                className="font-black text-gray-800 leading-[1.25] mb-6 sm:mb-8 text-center"
                 style={{ fontFamily: questionFontFamily, fontSize: responsiveQuestionFontSize }}
               >
                 {currentQuestion.question}
               </h3>
 
-              <div className={`grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-5 ${currentOptionKeys.length > 4 ? 'lg:grid-cols-3' : ''}`}>
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3 md:gap-4 ${currentOptionKeys.length > 4 ? 'lg:grid-cols-3' : ''}`}>
                 {currentOptionKeys.map((key) => {
                   const isHidden = gameState.hiddenOptions.includes(key);
                   const isSelected = !isAdvancingQuestion && !gameState.showExplanation && selectedOption === key && selectedQuestionId === currentQuestion.id;
 
-                  let btnClass = "answer-btn relative w-full text-left rounded-2xl border-[3px] font-bold flex items-center ";
-                  let btnStyle: React.CSSProperties;
+                  if (isHidden) return (
+                    <div key={key} className="opacity-0 pointer-events-none" style={answerButtonStyle} />
+                  );
 
-                  if (isHidden) {
-                    btnClass += "opacity-0 pointer-events-none";
-                    btnStyle = { ...answerButtonStyle };
-                  } else if (isSelected) {
-                    btnClass += "selected";
-                    btnStyle = {
-                      ...answerButtonStyle,
-                      backgroundColor: hexToRgba(activeTheme.primary, 0.06),
-                      borderColor: activeTheme.primary,
-                      color: '#0f172a',
-                    };
-                  } else {
-                    btnClass += "bg-white text-gray-700";
-                    btnStyle = { ...answerButtonStyle, borderColor: '#e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' };
-                  }
+                  const isRolling = ariscaHighlight === key && !ariscaDone;
+                  const isAriscaLanded = ariscaDone && ariscaResult === key;
 
                   return (
                     <button
                       key={key}
-                      disabled={isHidden || gameState.showExplanation}
+                      disabled={gameState.showExplanation || !!ariscaHighlight && !ariscaDone}
                       onClick={() => handleOptionClick(key)}
-                      className={btnClass}
-                      style={btnStyle}
+                      className="answer-btn relative w-full text-left font-bold flex items-center gap-3 active:scale-[0.98]"
+                      style={{
+                        ...answerButtonStyle,
+                        borderRadius: 16,
+                        border: isAriscaLanded
+                          ? '2.5px solid #8b5cf6'
+                          : isRolling
+                          ? '2.5px solid #a78bfa'
+                          : isSelected
+                          ? `2.5px solid ${activeTheme.primary}`
+                          : '2.5px solid #e8edf3',
+                        background: isAriscaLanded
+                          ? 'rgba(139,92,246,0.1)'
+                          : isRolling
+                          ? 'rgba(139,92,246,0.06)'
+                          : isSelected
+                          ? hexToRgba(activeTheme.primary, 0.06)
+                          : '#f8fafc',
+                        boxShadow: isAriscaLanded
+                          ? '0 0 20px rgba(139,92,246,0.35), 0 4px 18px rgba(139,92,246,0.2)'
+                          : isRolling
+                          ? '0 0 10px rgba(139,92,246,0.2)'
+                          : isSelected
+                          ? `0 4px 18px ${hexToRgba(activeTheme.primary, 0.2)}`
+                          : '0 1px 4px rgba(0,0,0,0.06)',
+                        color: '#0f172a',
+                        transition: 'all 80ms ease-out',
+                        transform: isRolling || isAriscaLanded ? 'scale(1.025)' : 'scale(1)',
+                      }}
                     >
+                      {/* Badge letra */}
                       <span
-                        className="rounded-full flex items-center justify-center shrink-0 font-black transition-all duration-150"
+                        className="flex items-center justify-center shrink-0 font-black rounded-xl"
                         style={{
-                          backgroundColor: isSelected ? activeTheme.primary : '#f1f5f9',
-                          color: isSelected ? '#ffffff' : '#64748b',
+                          background: isAriscaLanded
+                            ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)'
+                            : isRolling
+                            ? 'rgba(139,92,246,0.25)'
+                            : isSelected
+                            ? `linear-gradient(135deg, ${activeTheme.gradientEnd}, ${activeTheme.primary})`
+                            : '#e2e8f0',
+                          color: isAriscaLanded || isSelected ? '#fff' : isRolling ? '#7c3aed' : '#64748b',
                           width: responsiveBadgeSize,
                           height: responsiveBadgeSize,
                           fontSize: responsiveBadgeFontSize,
-                          boxShadow: isSelected ? `0 4px 12px ${hexToRgba(activeTheme.primary, 0.35)}` : 'none',
-                          flexShrink: 0
+                          boxShadow: isAriscaLanded
+                            ? '0 4px 12px rgba(139,92,246,0.5)'
+                            : isSelected
+                            ? `0 4px 10px ${hexToRgba(activeTheme.primary, 0.4)}`
+                            : 'none',
+                          flexShrink: 0,
+                          transition: 'all 80ms ease-out',
                         }}
                       >
                         {key}
                       </span>
-                      <span
-                        className="min-w-0 leading-tight break-words"
-                        style={{ fontFamily: answerFontFamily, fontSize: responsiveAnswerFontSize, lineHeight: 1.15 }}
-                      >
+                      <span className="min-w-0 leading-tight break-words" style={{ fontFamily: answerFontFamily, fontSize: responsiveAnswerFontSize, lineHeight: 1.15 }}>
                         {currentQuestion.options[key]}
                       </span>
+                      {isAriscaLanded && (
+                        <i className="fi fi-rr-dice shrink-0 ml-auto text-sm leading-none text-purple-500" aria-hidden="true" />
+                      )}
+                      {isSelected && !isAriscaLanded && (
+                        <i className="fi fi-rr-check shrink-0 ml-auto text-xs leading-none" style={{ color: activeTheme.primary }} aria-hidden="true" />
+                      )}
                     </button>
                   );
                 })}
@@ -5225,39 +5469,284 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-wrap justify-center gap-3 md:gap-5 mb-6 w-full">
-            <button
-              disabled={!selectedOption}
-              onClick={handleConfirm}
-              className="inline-flex flex-1 min-w-[140px] items-center justify-center text-white font-black py-3.5 md:py-4 px-6 md:px-10 rounded-2xl text-sm md:text-lg transition-all duration-200 ease-out shadow-xl active:scale-95 uppercase tracking-wide gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{
-                background: selectedOption
-                  ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
-                  : '#d1d5db',
-                boxShadow: selectedOption
-                  ? '0 6px 0 #15803d, 0 8px 20px rgba(34,197,94,0.35)'
-                  : '0 4px 0 #9ca3af',
-              }}
-            >
-              <i className="fi fi-rr-check" aria-hidden="true" />
-              Confirmar
-            </button>
-            <button
-              onClick={handleSkip}
-              className="inline-flex flex-1 min-w-[120px] items-center justify-center font-black py-3.5 md:py-4 px-5 md:px-8 rounded-2xl text-sm md:text-lg transition-all duration-200 ease-out shadow-lg active:scale-95 uppercase tracking-wide gap-2"
-              style={{
-                background: 'linear-gradient(135deg, #64748b 0%, #475569 100%)',
-                color: '#ffffff',
-                boxShadow: '0 5px 0 #334155, 0 6px 16px rgba(71,85,105,0.3)',
-              }}
-            >
-              <i className="fi fi-rr-forward" aria-hidden="true" />
-              Passar
-            </button>
-          </div>
+          {/* ─── Power-up buttons ─────────────────────────────────────────────── */}
+          {/* Botões de ação + power-ups numa linha só */}
+          {!gameState.showExplanation && (
+            <div className="flex gap-2 mb-5 w-full">
+              {/* Dica */}
+              {(() => {
+                const used = gamePowerUpsUsed.has(`${gameState.currentTeamIndex}-hint`);
+                return (
+                  <button
+                    disabled={used}
+                    onClick={() => { setShowHintModal(true); setGamePowerUpsUsed(s => { const n = new Set(s); n.add(`${gameState.currentTeamIndex}-hint`); return n; }); }}
+                    className="flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black uppercase tracking-wide transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed text-white text-center"
+                    style={{ background: used ? '#9ca3af' : 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: used ? '0 3px 0 #6b7280' : '0 4px 0 #b45309, 0 6px 14px rgba(245,158,11,0.35)' }}
+                  >
+                    <i className="fi fi-rr-lightbulb text-lg leading-none" aria-hidden="true" />
+                    <span className="text-center leading-none text-[10px] sm:text-xs">Dica</span>
+                  </button>
+                );
+              })()}
+              {/* Escolher Aleatório */}
+              {(() => {
+                const used = gamePowerUpsUsed.has(`${gameState.currentTeamIndex}-arisca`);
+                const visibleKeys = currentOptionKeys.filter(k => !gameState.hiddenOptions.includes(k));
+                return (
+                  <button
+                    disabled={used || (!ariscaDone && !!ariscaHighlight)}
+                    onClick={() => {
+                      setGamePowerUpsUsed(s => { const n = new Set(s); n.add(`${gameState.currentTeamIndex}-arisca`); return n; });
+                      setAriscaDone(false); setAriscaResult(null); setAriscaHighlight(null);
+                      setSelectedOption(null);
+                      handleArisca(visibleKeys);
+                    }}
+                    className="flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black uppercase tracking-wide transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed text-white text-center"
+                    style={{ background: used ? '#9ca3af' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)', boxShadow: used ? '0 3px 0 #6b7280' : '0 4px 0 #5b21b6, 0 6px 14px rgba(139,92,246,0.35)' }}
+                  >
+                    <i className="fi fi-rr-rotate-right text-lg leading-none" aria-hidden="true" />
+                    <span className="text-center leading-none text-[10px] sm:text-xs">Aleatório</span>
+                  </button>
+                );
+              })()}
+              {/* Roleta da Sorte */}
+              {(() => {
+                const used = gamePowerUpsUsed.has(`${gameState.currentTeamIndex}-luck`);
+                return (
+                  <button
+                    disabled={used}
+                    onClick={() => { setGamePowerUpsUsed(s => { const n = new Set(s); n.add(`${gameState.currentTeamIndex}-luck`); return n; }); setLuckResult(null); setShowLuckModal(true); }}
+                    className="flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black uppercase tracking-wide transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed text-white text-center"
+                    style={{ background: used ? '#9ca3af' : 'linear-gradient(135deg, #ec4899, #db2777)', boxShadow: used ? '0 3px 0 #6b7280' : '0 4px 0 #9d174d, 0 6px 14px rgba(236,72,153,0.35)' }}
+                  >
+                    <i className="fi fi-rr-clover text-lg leading-none" aria-hidden="true" />
+                    <span className="text-center leading-none text-[10px] sm:text-xs">Roleta</span>
+                  </button>
+                );
+              })()}
+
+              {/* Separador */}
+              <div className="w-px bg-white/20 self-stretch rounded-full mx-1" />
+
+              {/* Confirmar */}
+              <button
+                disabled={!selectedOption}
+                onClick={handleConfirm}
+                className="flex-[1.4] flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black uppercase tracking-wide transition-all active:scale-95 active:translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed text-white text-center"
+                style={{
+                  background: selectedOption ? 'linear-gradient(135deg, #22c55e, #16a34a)' : '#d1d5db',
+                  boxShadow: selectedOption ? '0 4px 0 #15803d, 0 6px 16px rgba(34,197,94,0.3)' : '0 3px 0 #9ca3af',
+                }}
+              >
+                <i className="fi fi-rr-check text-lg leading-none" aria-hidden="true" />
+                <span className="text-[10px] sm:text-xs leading-none">Confirmar</span>
+              </button>
+              {/* Passar */}
+              <button
+                onClick={handleSkip}
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl font-black uppercase tracking-wide transition-all active:scale-95 active:translate-y-0.5 text-white text-center"
+                style={{
+                  background: 'linear-gradient(135deg, #64748b, #475569)',
+                  boxShadow: '0 4px 0 #334155, 0 6px 14px rgba(71,85,105,0.25)',
+                }}
+              >
+                <i className="fi fi-rr-forward text-lg leading-none" aria-hidden="true" />
+                <span className="text-[10px] sm:text-xs leading-none">Passar</span>
+              </button>
+            </div>
+          )}
         </>
       )}
+
+      {/* ─── Modal: Dica ──────────────────────────────────────────────────────── */}
+      {showHintModal && (() => {
+        const FUNNY_HINTS = [
+          'Que Deus te ajude! 🙏',
+          'Ora, ora... boa sorte aí!',
+          'Confie no Espírito Santo!',
+          'Feche os olhos e chute!',
+          'A resposta está no seu coração... talvez.',
+          'Pergunta difícil né? Reza!',
+          'Nem eu sei essa. Vai na fé!',
+          'Já rezou hoje? Hora de começar.',
+          'A sabedoria vem do alto... e você vai precisar!',
+        ];
+        const hint = currentQuestion?.hint?.trim() ?? '';
+        // Se tem dica cadastrada, rola um dado: 50% chance de mostrar a dica real
+        const rolled = Math.random();
+        const showRealHint = hint && rolled < 0.5;
+        const funnyMsg = FUNNY_HINTS[Math.floor(Math.random() * FUNNY_HINTS.length)];
+        const displayText = showRealHint ? hint : funnyMsg;
+        const isReal = showRealHint;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowHintModal(false)}>
+            <div className="w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()} style={{ background: '#1e1b4b' }}>
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 flex items-center gap-3" style={{ background: 'linear-gradient(135deg, #f59e0b22, #d9770622)' }}>
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: '0 4px 12px rgba(245,158,11,0.4)' }}>
+                  <i className="fi fi-rr-lightbulb text-white text-2xl leading-none" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-white font-black text-lg leading-tight">Dica</p>
+                </div>
+                {/* Dado sorteado */}
+                <div className="ml-auto flex flex-col items-center gap-0.5">
+                  <i className={`fi fi-rr-dice-${Math.min(6, Math.ceil(rolled * 6) || 1)} text-2xl leading-none`} style={{ color: isReal ? '#4ade80' : '#fb923c' }} aria-hidden="true" />
+                  <p className="text-[8px] font-black uppercase tracking-wider" style={{ color: isReal ? '#4ade80' : '#fb923c' }}>{isReal ? 'Dica real!' : 'Sortuda!'}</p>
+                </div>
+              </div>
+              {/* Body */}
+              <div className="px-6 py-5">
+                <div className="rounded-2xl p-4 flex items-start gap-3" style={{ background: isReal ? 'rgba(74,222,128,0.08)' : 'rgba(251,146,60,0.08)', border: `1px solid ${isReal ? 'rgba(74,222,128,0.2)' : 'rgba(251,146,60,0.2)'}` }}>
+                  <span className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-lg" style={{ background: isReal ? 'rgba(74,222,128,0.15)' : 'rgba(251,146,60,0.15)' }}>
+                    {isReal ? <i className="fi fi-rr-lightbulb leading-none" style={{ color: '#4ade80' }} /> : <i className="fi fi-rr-laugh-squint leading-none" style={{ color: '#fb923c' }} />}
+                  </span>
+                  <p className="text-white text-sm leading-relaxed">{displayText}</p>
+                </div>
+              </div>
+              <div className="px-6 pb-6">
+                <button onClick={() => setShowHintModal(false)} className="w-full py-3.5 rounded-2xl font-black text-sm uppercase tracking-wide text-white transition-all active:scale-95" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: '0 4px 0 #b45309' }}>
+                  Entendido!
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+
+      {/* ─── Modal: Roleta da Sorte ───────────────────────────────────────────── */}
+      {showLuckModal && (() => {
+        const segAngle = 360 / LUCK_SEGMENTS.length;
+        const r = 1;
+        const svgSegments = LUCK_SEGMENTS.map((seg, i) => {
+          const startRad = ((i * segAngle) - 90) * (Math.PI / 180);
+          const endRad = (((i + 1) * segAngle) - 90) * (Math.PI / 180);
+          const x1 = Math.cos(startRad) * r;
+          const y1 = Math.sin(startRad) * r;
+          const x2 = Math.cos(endRad) * r;
+          const y2 = Math.sin(endRad) * r;
+          const midRad = ((i * segAngle + segAngle / 2) - 90) * (Math.PI / 180);
+          const lx = Math.cos(midRad) * 0.62;
+          const ly = Math.sin(midRad) * 0.62;
+          // Rotate text so it always reads outward and is never upside-down
+          const rawAngle = Math.atan2(ly, lx) * 180 / Math.PI;
+          const textRotation = ly > 0 ? rawAngle + 180 : rawAngle;
+          return { seg, path: `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 0 1 ${x2} ${y2} Z`, lx, ly, textRotation };
+        });
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3" onClick={!luckSpinning && !luckResult ? () => setShowLuckModal(false) : undefined}>
+            <div
+              className="w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+              style={{ background: 'rgba(255,255,255,0.97)', boxShadow: '0 8px 40px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.08)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Faixa colorida topo */}
+              <div className="h-1.5 w-full" style={{ background: 'linear-gradient(90deg, #ec4899, #db2777)' }} />
+
+              {/* Header */}
+              <div className="px-6 pt-5 pb-3 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)', boxShadow: '0 4px 12px rgba(236,72,153,0.35)' }}>
+                  <i className="fi fi-rr-clover text-white text-xl leading-none" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-gray-800 font-black text-lg leading-tight">Roleta da Sorte</p>
+                </div>
+                {!luckSpinning && !luckResult && (
+                  <button onClick={() => setShowLuckModal(false)} className="ml-auto w-8 h-8 rounded-xl flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all" aria-label="Fechar">
+                    <i className="fi fi-rr-cross text-xs leading-none" aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+
+              {/* Roulette */}
+              <div className="flex flex-col items-center px-4 pb-4 pt-1">
+                {/* Pointer triangle */}
+                <div className="w-0 h-0 z-10 relative mb-[-3px]" style={{ borderLeft: '12px solid transparent', borderRight: '12px solid transparent', borderTop: '26px solid #1e293b', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }} />
+                {/* Wheel */}
+                <div className="relative w-full" style={{ maxWidth: 320 }}>
+                  <div style={{ paddingBottom: '100%', position: 'relative' }}>
+                    <svg
+                      viewBox="-1.05 -1.05 2.1 2.1"
+                      style={{
+                        position: 'absolute', inset: 0, width: '100%', height: '100%',
+                        transform: `rotate(${luckRotation}deg)`,
+                        transition: luckSpinning ? 'transform 4.2s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none',
+                        borderRadius: '50%',
+                        boxShadow: '0 0 0 5px #e2e8f0, 0 12px 40px rgba(0,0,0,0.2)',
+                      }}
+                    >
+                      {svgSegments.map(({ seg, path, lx, ly, textRotation }, i) => {
+                        const words = seg.label.split(' ');
+                        return (
+                          <g key={i}>
+                            <path d={path} fill={seg.color} stroke="rgba(255,255,255,0.35)" strokeWidth="0.018" />
+                            <text
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              transform={`translate(${lx},${ly}) rotate(${textRotation})`}
+                              style={{ fontSize: '0.115px', fontWeight: 900, fill: '#fff', fontFamily: 'Montserrat, sans-serif' }}
+                            >
+                              {words.length === 1 ? (
+                                <tspan x="0" dy="0">{words[0]}</tspan>
+                              ) : (
+                                <>
+                                  <tspan x="0" dy="-0.065">{words[0]}</tspan>
+                                  <tspan x="0" dy="0.13">{words.slice(1).join(' ')}</tspan>
+                                </>
+                              )}
+                            </text>
+                          </g>
+                        );
+                      })}
+                      {/* Center cap */}
+                      <circle cx="0" cy="0" r="0.16" fill="#1e293b" stroke="rgba(255,255,255,0.3)" strokeWidth="0.025" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Result */}
+              {luckResult && (
+                <div className="mx-6 mb-4 rounded-2xl p-4 text-center" style={{ background: luckResult.color + '18', border: `2px solid ${luckResult.color}55` }}>
+                  <p className="font-black text-xl" style={{ color: luckResult.color }}>{luckResult.label}</p>
+                  <p className="text-gray-500 text-xs mt-1">
+                    {luckResult.type === 'pass' && 'A vez passa para o outro time!'}
+                    {luckResult.type === 'zero' && 'Todos os pontos foram perdidos!'}
+                    {luckResult.type === 'score' && luckResult.amount > 0 && `+${luckResult.amount} pontos para sua equipe!`}
+                    {luckResult.type === 'score' && luckResult.amount < 0 && `${luckResult.amount} pontos da sua equipe!`}
+                  </p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="px-6 pb-6 flex gap-3">
+                {!luckResult && !luckSpinning && (
+                  <button onClick={handleLuckSpin} className="flex-1 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wide text-white transition-all active:scale-95 flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #ec4899, #db2777)', boxShadow: '0 5px 0 #9d174d' }}>
+                    <i className="fi fi-rr-spinner-alt leading-none" aria-hidden="true" />
+                    Girar Roleta!
+                  </button>
+                )}
+                {luckSpinning && (
+                  <div className="flex-1 py-3.5 rounded-2xl text-center font-black text-sm uppercase tracking-wide animate-pulse" style={{ background: 'rgba(236,72,153,0.1)', color: '#db2777' }}>
+                    Girando...
+                  </div>
+                )}
+                {luckResult && (
+                  <button onClick={handleApplyLuck} className="flex-1 py-3.5 rounded-2xl font-black text-sm uppercase tracking-wide text-white transition-all active:scale-95" style={{ background: `linear-gradient(135deg, ${luckResult.color}, ${luckResult.color}cc)`, boxShadow: `0 4px 0 rgba(0,0,0,0.25)` }}>
+                    Aplicar resultado
+                  </button>
+                )}
+                {luckResult && (
+                  <button onClick={() => setShowLuckModal(false)} className="py-3.5 px-4 rounded-2xl font-black text-xs uppercase tracking-wide text-gray-400 transition-all active:scale-95" style={{ background: '#f1f5f9' }}>
+                    Fechar
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showTenSecondsClock && (
         <div className="fixed inset-0 z-[45] flex items-center justify-center pointer-events-none">
@@ -5473,37 +5962,30 @@ const App: React.FC = () => {
 
       {showCorrectConfetti && (
         <div className="pointer-events-none fixed inset-0 z-[200] overflow-hidden" aria-hidden="true">
-          {Array.from({ length: 150 }).map((_, i) => {
-            const size = 8 + Math.random() * 12;
-            const angle = Math.random() * Math.PI * 2;
-            const velocity = 200 + Math.random() * 600;
-            const x = Math.cos(angle) * velocity;
-            const y = Math.sin(angle) * velocity;
-            const xEnd = x * 1.2;
-            const yEnd = y + 500;
-            const rotation = Math.random() * 360;
-            const duration = 3000 + Math.random() * 3000;
-            const delay = Math.random() * 200;
-            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#ffc0cb', '#800080'];
-            const shapes = ['square', 'circle', 'triangle', 'star', 'diamond', 'ribbon'];
-            const shape = shapes[Math.floor(Math.random() * shapes.length)];
-            const color = colors[Math.floor(Math.random() * colors.length)];
-
+          {Array.from({ length: 220 }).map((_, i) => {
+            const colors = ['#ff1744','#ff6d00','#ffea00','#69f0ae','#00e5ff','#2979ff','#d500f9','#ff4081','#fff176','#40c4ff','#f06292','#aed581'];
+            const shapes = ['square','circle','triangle','star','diamond','ribbon'];
+            const color    = colors[i % colors.length];
+            const shape    = shapes[Math.floor(Math.random() * shapes.length)];
+            const size     = 7 + Math.random() * 10;
+            const startX   = 2 + Math.random() * 96;
+            const drift    = (Math.random() - 0.5) * 260;
+            const spin     = (Math.random() < 0.5 ? 1 : -1) * (280 + Math.random() * 440);
+            const duration = 2600 + Math.random() * 2000;
+            const delay    = Math.random() * 3500;
             return (
               <div
                 key={`confetti-${i}`}
                 className={`confetti-piece confetti-piece--bursting shape-${shape}`}
                 style={{
-                  '--size': `${size}px`,
-                  '--color': color,
-                  '--x': `${x}px`,
-                  '--y': `${y}px`,
-                  '--x-end': `${xEnd}px`,
-                  '--y-end': `${yEnd}px`,
-                  '--rot': `${rotation}deg`,
+                  left: `${startX}%`,
+                  '--size':     `${size}px`,
+                  '--color':    color,
+                  '--drift':    `${drift}px`,
+                  '--spin':     `${spin}deg`,
                   '--duration': `${duration}ms`,
-                  animationDelay: `${delay}ms`
-                } as any}
+                  '--delay':    `${delay}ms`,
+                } as React.CSSProperties & Record<string, string>}
               />
             );
           })}
@@ -5629,7 +6111,6 @@ const App: React.FC = () => {
       {imageSourceDialog}
       {cameraCaptureDialog}
 
-      {questionOptionsPanel}
       {updateDialog}
       {updateProgressDialog}
       {appFooter}
