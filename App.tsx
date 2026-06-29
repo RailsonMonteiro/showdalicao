@@ -3879,7 +3879,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}>
         <div className="w-full max-w-sm flex flex-col items-center gap-6">
-          <img src="img/logo.png" alt="Logo" className="h-20 drop-shadow-lg" />
+          <img src={showDaLicaoLogo} alt="Show da Lição" className="h-20 drop-shadow-lg" />
           <div className="text-center">
             <h1 className="text-white text-2xl font-normal tracking-wide">Show da Lição</h1>
             <p className="text-white/60 text-sm mt-1">Quiz Bíblico</p>
