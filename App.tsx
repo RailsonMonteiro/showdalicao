@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question, RankingEntry } from './types';
 import { supabase } from './supabaseClient';
+import AppPerguntas, { GameTeam } from './App_perguntas';
 import expandIcon from './img/expandir.svg';
 import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
@@ -2054,6 +2055,25 @@ const App: React.FC = () => {
         selectedOption: null,
         showExplanation: true,
         explanationType: isCorrect ? 'correct' : 'wrong'
+      };
+    });
+  };
+
+  const handlePerguntasAnswer = (answer: QuestionOptionKey) => {
+    if (!currentQuestion) return;
+    setResolvedQuestion(currentQuestion);
+    const isCorrect = answer === currentQuestion.answer;
+    setGameState(prev => {
+      const newTeams = [...prev.teams] as [Team, Team];
+      if (isCorrect) {
+        newTeams[prev.currentTeamIndex].score += currentQuestion.points ?? pointsPerQuestion;
+      }
+      return {
+        ...prev,
+        teams: newTeams,
+        selectedOption: null,
+        showExplanation: true,
+        explanationType: isCorrect ? 'correct' : 'wrong',
       };
     });
   };
@@ -5848,6 +5868,38 @@ const App: React.FC = () => {
       )}
 
       </div>
+
+      {/* AppPerguntas – tela de jogo em modo dupla (z-50, abaixo do overlay de explicação z-120) */}
+      {!gameState.isSoloMode && currentQuestion && (() => {
+        const toGameTeam = (t: Team, label: string): GameTeam => ({
+          label,
+          name: t.name,
+          score: t.score,
+          grad: `linear-gradient(135deg, ${t.color}, ${t.color}cc)`,
+          glow: t.color + '70',
+        });
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 50 }}>
+            <AppPerguntas
+              question={currentQuestion}
+              teams={[
+                toGameTeam(gameState.teams[0], 'EQUIPE A'),
+                toGameTeam(gameState.teams[1], 'EQUIPE B'),
+              ]}
+              currentTeamIdx={gameState.currentTeamIndex}
+              onConfirm={handlePerguntasAnswer}
+              onFinish={resetToSetup}
+              onTimerStart={() => {
+                const audio = new Audio(tenSecondsAudioTrack);
+                audio.volume = teamClockVolume / 100;
+                tenSecondsAudioRef.current = audio;
+                void audio.play().catch(() => {});
+              }}
+            />
+          </div>
+        );
+      })()}
+
       {/* Feedback Overlay */}
       {gameState.showExplanation && (
         <div
