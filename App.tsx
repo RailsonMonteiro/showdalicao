@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GameState, LifelineType, QuestionOptionKey, QuestionOptions, Team, Question, RankingEntry } from './types';
 import { supabase } from './supabaseClient';
 import AppPerguntas, { GameTeam } from './App_perguntas';
+import AppPergSolo from './App_perg_solo';
 import expandIcon from './img/expandir.svg';
 import rightOptionsIcon from './img/direita.svg';
 import leftOptionsIcon from './img/esquerda.svg';
@@ -29,11 +30,8 @@ const LUCK_SEGMENTS = [
 ] as const;
 
 const TEAM_COLORS = [
-  { label: 'Azul',     value: '#3b82f6' },
-  { label: 'Vermelho', value: '#ef4444' },
-  { label: 'Verde',    value: '#22c55e' },
-  { label: 'Roxo',     value: '#a855f7' },
-  { label: 'Laranja',  value: '#f97316' },
+  { label: 'Azul',    value: '#3b82f6' },
+  { label: 'Laranja', value: '#f97316' },
 ];
 
 const MIN_ZOOM = 50;
@@ -490,7 +488,7 @@ const App: React.FC = () => {
   const [draftTeam1Name, setDraftTeam1Name] = useState('');
   const [draftTeam2Name, setDraftTeam2Name] = useState('');
   const [draftTeam1Color, setDraftTeam1Color] = useState('#3b82f6');
-  const [draftTeam2Color, setDraftTeam2Color] = useState('#ef4444');
+  const [draftTeam2Color, setDraftTeam2Color] = useState('#f97316');
   const [questionDrafts, setQuestionDrafts] = useState<QuestionDraft[]>([]);
   const [resolvedQuestion, setResolvedQuestion] = useState<Question | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
@@ -528,7 +526,7 @@ const App: React.FC = () => {
       if (data) {
         setRankings(data.map(item => ({
           name: item.name,
-          score: item.score,
+          score: Number(item.score),
           date: new Date(item.created_at).toLocaleDateString('pt-BR')
         })));
       }
@@ -1107,6 +1105,11 @@ const App: React.FC = () => {
     if (!openingAudioRef.current) return;
     openingAudioRef.current.volume = musicVolume / 100;
   }, [musicVolume]);
+
+  useEffect(() => {
+    if (!tenSecondsAudioRef.current) return;
+    tenSecondsAudioRef.current.volume = teamClockVolume / 100;
+  }, [teamClockVolume]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1994,7 +1997,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStartGame = (isSolo: boolean = false, overrideNames?: { t1: string; t2: string }) => {
+  const handleStartGame = (isSolo: boolean = false, overrideNames?: { t1: string; t2: string }, overrideColors?: { c1: string; c2: string }) => {
     stopOpeningAudio();
     setResolvedQuestion(null);
     setSelectedQuestionId(null);
@@ -2015,8 +2018,8 @@ const App: React.FC = () => {
       currentQuestionIndex: 0,
       currentTeamIndex: 0,
       teams: [
-        { name: t1Name, score: 0, color: draftTeam1Color, lifelinesUsed: [] },
-        { name: t2Name, score: 0, color: isSolo ? '#6b7280' : draftTeam2Color, lifelinesUsed: [] }
+        { name: t1Name, score: 0, color: overrideColors?.c1 ?? draftTeam1Color, lifelinesUsed: [] },
+        { name: t2Name, score: 0, color: isSolo ? '#6b7280' : (overrideColors?.c2 ?? draftTeam2Color), lifelinesUsed: [] }
       ],
       selectedOption: null,
       showExplanation: false,
@@ -2307,14 +2310,14 @@ const App: React.FC = () => {
   };
 
   const saveTeamNames = () => {
-    const team1 = TEAM_COLORS.find(c => c.value === draftTeam1Color)?.label ?? 'Equipe 1';
-    const team2 = TEAM_COLORS.find(c => c.value === draftTeam2Color)?.label ?? 'Equipe 2';
+    const team1 = 'Azul';
+    const team2 = 'Laranja';
     setDraftTeam1Name(team1);
     setDraftTeam2Name(team2);
     updateTeamName(0, team1);
     updateTeamName(1, team2);
     setShowTeamNamesModal(false);
-    handleStartGame(false, { t1: team1, t2: team2 });
+    handleStartGame(false, { t1: team1, t2: team2 }, { c1: '#3b82f6', c2: '#fb8500' });
   };
 
 
@@ -4191,25 +4194,48 @@ const App: React.FC = () => {
     };
 
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}>
-        <div className="w-full max-w-sm flex flex-col items-center gap-6">
-          <img src={showDaLicaoLogo} alt="Show da Lição" className="h-20 drop-shadow-lg" />
-          <div className="text-center">
-            <h1 className="text-white text-2xl font-normal tracking-wide">Show da Lição</h1>
-            <p className="text-white/60 text-sm mt-1">Quiz Bíblico</p>
+      <div style={{
+        minHeight: '100dvh',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: '24px',
+        background: 'radial-gradient(ellipse 105% 105% at 0% 0%, #3b82f6cc 0%, #3b82f644 46%, transparent 63%), radial-gradient(ellipse 105% 105% at 100% 100%, #3b82f6cc 0%, #3b82f644 46%, transparent 63%), #060610',
+        fontFamily: "'Montserrat', sans-serif",
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32, position: 'relative', zIndex: 1 }}>
+
+          {/* Logo + título */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+            <img src={showDaLicaoLogo} alt="Show da Lição" style={{ height: 88, filter: 'drop-shadow(0 4px 24px rgba(0,0,0,0.5))' }} />
+            <div style={{ textAlign: 'center' }}>
+              <h1 style={{ fontSize: 26, fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '0.03em', textShadow: '0 2px 16px rgba(0,0,0,0.4)' }}>Show da Lição</h1>
+              <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.5)', margin: '4px 0 0', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Quiz Bíblico</p>
+            </div>
           </div>
 
-          <div className="w-full bg-white/10 backdrop-blur-sm rounded-3xl p-6 flex flex-col gap-5 shadow-xl">
+          {/* Card */}
+          <div style={{
+            width: '100%',
+            background: 'rgba(255,255,255,0.07)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 24,
+            padding: '32px 28px',
+            backdropFilter: 'blur(16px)',
+            display: 'flex', flexDirection: 'column', gap: 20,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.3)',
+          }}>
             {sharedLinkExpired || noToken ? (
               /* Link expirado ou inválido */
-              <div className="flex flex-col items-center gap-3 py-2 text-center">
-                <div className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center">
-                  <i className="fi fi-rr-time-past text-white/60 text-2xl leading-none" aria-hidden="true" />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, textAlign: 'center', padding: '8px 0' }}>
+                <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <i className="fi fi-rr-time-past" style={{ fontSize: 24, color: 'rgba(255,255,255,0.5)', lineHeight: 1 }} aria-hidden="true" />
                 </div>
-                <p className="text-white font-normal text-base">
+                <p style={{ fontSize: 16, fontWeight: 800, color: '#fff', margin: 0 }}>
                   {noToken ? 'Link inválido' : 'Este link expirou'}
                 </p>
-                <p className="text-white/50 text-sm leading-relaxed">
+                <p style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.45)', margin: 0, lineHeight: 1.6 }}>
                   {noToken
                     ? 'Solicite um novo link ao professor.'
                     : 'Este link não é mais válido. Solicite um novo link ao professor.'}
@@ -4217,16 +4243,16 @@ const App: React.FC = () => {
               </div>
             ) : validating || dbQuestions.length === 0 ? (
               /* Carregando / validando */
-              <div className="flex flex-col items-center gap-3 py-2">
-                <i className="fi fi-rr-spinner animate-spin text-white/60 text-2xl leading-none" aria-hidden="true" />
-                <p className="text-white/70 text-sm">Carregando o jogo...</p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '12px 0' }}>
+                <i className="fi fi-rr-spinner animate-spin" style={{ fontSize: 28, color: 'rgba(255,255,255,0.6)', lineHeight: 1 }} aria-hidden="true" />
+                <p style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', margin: 0 }}>Carregando o jogo...</p>
               </div>
             ) : (
               /* Pronto: pede o nome */
               <>
-                <div className="text-center">
-                  <p className="text-white font-normal text-base">Qual é o seu nome?</p>
-                  <p className="text-white/50 text-xs mt-1">{dbQuestions.length} perguntas disponíveis</p>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ fontSize: 17, fontWeight: 800, color: '#fff', margin: '0 0 6px', letterSpacing: '0.01em' }}>Qual é o seu nome?</p>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', margin: 0, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{dbQuestions.length} {dbQuestions.length === 1 ? 'pergunta' : 'perguntas'} disponíveis</p>
                 </div>
                 <input
                   type="text"
@@ -4236,12 +4262,40 @@ const App: React.FC = () => {
                   onChange={e => setSharedPlayerName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSharedStart()}
                   placeholder="Digite seu nome..."
-                  className="w-full px-4 py-3 rounded-2xl bg-white/20 text-white placeholder-white/40 text-base font-normal outline-none focus:bg-white/30 transition-colors"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '14px 18px',
+                    borderRadius: 14,
+                    background: 'rgba(255,255,255,0.12)',
+                    border: '2px solid rgba(255,255,255,0.2)',
+                    color: '#fff',
+                    fontSize: 15, fontWeight: 600,
+                    fontFamily: "'Montserrat', sans-serif",
+                    outline: 'none',
+                    transition: 'border-color 0.18s, background 0.18s',
+                  }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)'; e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
                 />
                 <button
                   onClick={handleSharedStart}
-                  className="w-full py-3.5 rounded-2xl text-white font-normal text-base transition-all active:scale-95 shadow-lg flex items-center justify-center gap-2"
-                  style={{ background: 'rgba(255,255,255,0.25)', backdropFilter: 'blur(8px)' }}
+                  disabled={!canStart}
+                  style={{
+                    width: '100%',
+                    padding: '15px 0',
+                    borderRadius: 14,
+                    background: canStart ? 'linear-gradient(135deg, #fb8500, #ea6c00)' : 'rgba(255,255,255,0.1)',
+                    border: 'none',
+                    color: canStart ? '#fff' : 'rgba(255,255,255,0.3)',
+                    fontSize: 15, fontWeight: 900,
+                    letterSpacing: '0.1em', textTransform: 'uppercase',
+                    cursor: canStart ? 'pointer' : 'not-allowed',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                    boxShadow: canStart ? '0 4px 20px rgba(251,133,0,0.45)' : 'none',
+                    transition: 'all 0.18s',
+                  }}
+                  onMouseEnter={e => { if (canStart) e.currentTarget.style.boxShadow = '0 6px 28px rgba(251,133,0,0.65)'; }}
+                  onMouseLeave={e => { if (canStart) e.currentTarget.style.boxShadow = '0 4px 20px rgba(251,133,0,0.45)'; }}
                 >
                   <i className="fi fi-rr-gamepad leading-none" aria-hidden="true" />
                   Jogar
@@ -4249,8 +4303,11 @@ const App: React.FC = () => {
               </>
             )}
           </div>
+
           {!sharedLinkExpired && !noToken && (
-            <p className="text-white/30 text-xs text-center">Sua pontuação será salva no ranking</p>
+            <p style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.25)', margin: 0, letterSpacing: '0.06em' }}>
+              Sua pontuação será salva no ranking
+            </p>
           )}
         </div>
       </div>
@@ -4618,113 +4675,30 @@ const App: React.FC = () => {
         {loginModal}
 
         {showTeamNamesModal && (
-          <div className="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden" style={{ boxShadow: `0 32px 64px rgba(0,0,0,0.22), 0 0 0 1px ${hexToRgba(activeTheme.accent, 0.3)}` }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 90, overflow: 'hidden' }}>
+            {/* Imagem de fundo */}
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: 'url("img/blackground times.webp")', backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }} />
 
-              {/* Header colorido */}
-              <div className="px-6 pt-6 pb-5 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)` }}>
-                <div className="absolute top-0 right-0 w-32 h-32 rounded-full opacity-10" style={{ background: '#fff', transform: 'translate(30%, -30%)' }} />
-                <div className="flex items-center gap-3 relative z-10">
-                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(4px)' }}>
-                    <i className="fi fi-rr-shield text-white text-xl leading-none" aria-hidden="true" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.35em] text-white/60 leading-none mb-0.5">Configurar</p>
-                    <h3 className="text-lg font-black text-white leading-tight">Nome das Equipes</h3>
-                  </div>
-                </div>
-              </div>
-
-              {/* Corpo */}
-              <div className="px-6 py-5">
-                <div className="space-y-4 mb-6">
-
-                  {/* Equipe 1 */}
-                  <div className="rounded-2xl border-2 px-4 py-4 transition-all" style={{ borderColor: draftTeam1Color, background: `${draftTeam1Color}0d` }}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: draftTeam1Color }}>1</div>
-                      <p className="text-sm font-black uppercase tracking-wider" style={{ color: draftTeam1Color }}>
-                        Equipe — {TEAM_COLORS.find(c => c.value === draftTeam1Color)?.label}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 justify-center">
-                      {TEAM_COLORS.map(c => (
-                        <button
-                          key={c.value}
-                          title={c.label}
-                          onClick={() => { setDraftTeam1Color(c.value); setDraftTeam1Name(c.label); }}
-                          className="relative flex items-center justify-center transition-all duration-200 active:scale-90 shrink-0"
-                          style={{ width: 53, height: 30, borderRadius: '50%', background: c.value, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}
-                        >
-                          {draftTeam1Color === c.value && (
-                            <i className="fi fi-rr-check text-white text-sm leading-none" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }} aria-hidden="true" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* VS divisor */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 h-px bg-gray-100" />
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: hexToRgba(activeTheme.primary, 0.08), border: `1.5px solid ${hexToRgba(activeTheme.primary, 0.15)}` }}>
-                      <i className="fi fi-rr-swords text-xs leading-none" style={{ color: activeTheme.primary, opacity: 0.5 }} aria-hidden="true" />
-                    </div>
-                    <div className="flex-1 h-px bg-gray-100" />
-                  </div>
-
-                  {/* Equipe 2 */}
-                  <div className="rounded-2xl border-2 px-4 py-4 transition-all" style={{ borderColor: draftTeam2Color, background: `${draftTeam2Color}0d` }}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-7 h-7 rounded-xl flex items-center justify-center text-white text-xs font-black shrink-0" style={{ background: draftTeam2Color }}>2</div>
-                      <p className="text-sm font-black uppercase tracking-wider" style={{ color: draftTeam2Color }}>
-                        Equipe — {TEAM_COLORS.find(c => c.value === draftTeam2Color)?.label}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 justify-center">
-                      {TEAM_COLORS.map(c => (
-                        <button
-                          key={c.value}
-                          title={c.label}
-                          onClick={() => { setDraftTeam2Color(c.value); setDraftTeam2Name(c.label); }}
-                          className="relative flex items-center justify-center transition-all duration-200 active:scale-90 shrink-0"
-                          style={{ width: 53, height: 30, borderRadius: '50%', background: c.value, boxShadow: '0 2px 6px rgba(0,0,0,0.18)' }}
-                        >
-                          {draftTeam2Color === c.value && (
-                            <i className="fi fi-rr-check text-white text-sm leading-none" style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.3))' }} aria-hidden="true" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Botões */}
-                <div className="flex items-center gap-2.5">
-                  <button
-                    onClick={() => {
-                      setShowTeamNamesModal(false);
-                      if (returnToDashboard.current) {
-                        returnToDashboard.current = false;
-                        setShowDashboard(true);
-                      }
-                    }}
-                    className="flex items-center justify-center gap-2 flex-1 py-3.5 rounded-2xl font-black uppercase text-sm transition-all active:scale-95 bg-gray-100 text-gray-500 hover:bg-gray-150"
-                  >
-                    <i className="fi fi-rr-cross-small text-base leading-none" aria-hidden="true" />
-                    Fechar
-                  </button>
-                  <button
-                    onClick={saveTeamNames}
-                    disabled={draftTeam1Color === draftTeam2Color}
-                    className="flex items-center justify-center gap-2 flex-[2] py-3.5 rounded-2xl text-white font-black uppercase text-sm shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{ background: `linear-gradient(135deg, ${draftTeam1Color} 0%, ${draftTeam2Color} 100%)`, boxShadow: `0 6px 20px rgba(0,0,0,0.2)` }}
-                  >
-                    <i className="fi fi-rr-play text-sm leading-none" aria-hidden="true" />
-                    Iniciar Jogo
-                  </button>
-                </div>
-              </div>
+            {/* Botões centralizados */}
+            <div style={{ position: 'relative', zIndex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 48, gap: 12 }}>
+              <button
+                onClick={saveTeamNames}
+                style={{ width: 280, padding: '16px 0', borderRadius: 14, background: '#fff', border: 'none', color: '#111', fontWeight: 900, fontSize: 16, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}
+              >
+                ▶ INICIAR JOGO
+              </button>
+              <button
+                onClick={() => {
+                  setShowTeamNamesModal(false);
+                  if (returnToDashboard.current) {
+                    returnToDashboard.current = false;
+                    setShowDashboard(true);
+                  }
+                }}
+                style={{ background: 'none', border: 'none', color: '#fff', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', textDecoration: 'none', padding: '4px 0' }}
+              >
+                Fechar
+              </button>
             </div>
           </div>
         )}
@@ -4745,84 +4719,287 @@ const App: React.FC = () => {
 
     const handleFinalize = async () => {
       if (gameState.isSoloMode) {
-        const ownerId = isSharedSoloGame
-          ? sharedLinkUserId
-          : (await supabase.auth.getUser()).data.user?.id ?? null;
-        await saveRankingEntries(gameState.teams, ownerId, isSharedSoloGame);
+        if (isSharedSoloGame && sharedToken) {
+          // Usuário anônimo (jogou via link): usa RPC com SECURITY DEFINER
+          const player = gameState.teams[0];
+          const { error } = await supabase.rpc('save_game_score', {
+            p_token: sharedToken,
+            p_name:  player.name,
+            p_score: player.score,
+          });
+          if (error) console.error('Erro ao salvar ranking:', error.message);
+        } else {
+          // Solo local (professor logado): insert direto com RLS
+          const ownerId = (await supabase.auth.getUser()).data.user?.id ?? null;
+          await saveRankingEntries(gameState.teams, ownerId, true);
+        }
       }
       window.location.reload();
     };
 
+    const t1Color = gameState.teams[0].color;
+    const t2Color = gameState.teams[1]?.color ?? '#fb8500';
+
     return (
-      <div className="min-h-[100dvh] flex items-center justify-center p-4 md:p-6 overflow-y-auto settings-scroll">
-        <div className="w-full max-w-2xl" style={setupScaledStyle}>
-          <div className="bg-white rounded-[2rem] shadow-2xl text-center w-full overflow-hidden">
-            {/* Header colorido */}
-            <div
-              className="px-5 sm:px-8 pt-8 sm:pt-10 pb-6 sm:pb-8"
-              style={{ background: `linear-gradient(135deg, ${activeTheme.gradientStart} 0%, ${activeTheme.primary} 100%)` }}
-            >
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white/20 flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                <i className="fi fi-rr-trophy text-white text-2xl sm:text-3xl" aria-hidden="true" />
-              </div>
-              <h2 className="text-xl sm:text-3xl md:text-4xl font-black uppercase text-white mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>Fim de Jogo</h2>
-              <p className="text-white/70 text-sm font-semibold uppercase tracking-wider">
-                {gameState.isSoloMode ? `Parabéns, ${gameState.teams[0].name}!` : (isDraw ? 'Empate Técnico!' : `Vencedor: ${winner.name}`)}
-              </p>
-            </div>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', position: 'relative', overflow: 'hidden', background: isDraw
+              ? `radial-gradient(ellipse 105% 105% at 0% 0%, #fb8500cc 0%, #fb850044 46%, transparent 63%), radial-gradient(ellipse 105% 105% at 100% 100%, ${t1Color}cc 0%, ${t1Color}44 46%, transparent 63%), #060610`
+              : `radial-gradient(ellipse 120% 120% at 0% 0%, ${winner.color}cc 0%, ${winner.color}44 50%, transparent 70%), radial-gradient(ellipse 120% 120% at 100% 100%, ${winner.color}cc 0%, ${winner.color}44 50%, transparent 70%), #060610` }}>
 
-            {/* Placar */}
-            <div className="p-4 sm:p-6 md:p-8">
-              <div className={`grid ${gameState.isSoloMode ? 'grid-cols-1 max-w-xs mx-auto' : 'grid-cols-1 sm:grid-cols-2'} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
-                {gameState.teams.slice(0, gameState.isSoloMode ? 1 : 2).map((team, idx) => {
-                  const isWinner = !isDraw && team === winner;
-                  return (
-                    <div
-                      key={team.name}
-                      className="rounded-2xl p-5 border-2 transition-all"
-                      style={isWinner || gameState.isSoloMode ? {
-                        background: hexToRgba(activeTheme.accent, 0.18),
-                        borderColor: activeTheme.primary
-                      } : {
-                        background: '#f8fafc',
-                        borderColor: '#e2e8f0'
-                      }}
-                    >
-                      {isWinner && !gameState.isSoloMode && (
-                        <div className="text-xs font-black uppercase tracking-wider mb-2 flex items-center justify-center gap-1" style={{ color: activeTheme.primary }}>
-                          <i className="fi fi-rr-crown" aria-hidden="true" />
-                          Vencedor
-                        </div>
-                      )}
-                      <p className="text-xs sm:text-sm font-black uppercase text-gray-500 mb-2 truncate">{team.name}</p>
-                      <p className="text-3xl sm:text-4xl font-black" style={{ color: isWinner || gameState.isSoloMode ? activeTheme.primary : '#94a3b8' }}>
-                        {team.score}
-                      </p>
-                      <p className="text-[10px] font-bold text-gray-400 uppercase mt-1">pontos</p>
-                    </div>
-                  );
-                })}
-              </div>
+        <div style={{ width: '100%', maxWidth: 520, position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28 }}>
 
-              <button
-                onClick={handleFinalize}
-                className="btn-quiz-primary w-full py-4 text-white font-black text-base md:text-lg uppercase tracking-wider shadow-xl"
-                style={{
-                  background: `linear-gradient(135deg, ${activeTheme.gradientEnd} 0%, ${activeTheme.primary} 100%)`,
-                  boxShadow: `0 6px 0 ${hexToRgba(activeTheme.primary, 0.6)}, 0 12px 28px ${hexToRgba(activeTheme.primary, 0.35)}`
-                }}
-              >
-                <i className="fi fi-rr-refresh mr-2" aria-hidden="true" />
-                Jogar Novamente
-              </button>
+          {/* Troféu + título */}
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: '2px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+              <i className="fi fi-rr-trophy" style={{ fontSize: 32, color: '#fbbf24', lineHeight: 1 }} aria-hidden="true" />
             </div>
+            <h2 style={{ fontSize: 40, fontWeight: 900, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', textShadow: '0 2px 16px rgba(0,0,0,0.4)' }}>Fim de Jogo</h2>
+            <p style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.25em', margin: 0 }}>
+              {gameState.isSoloMode ? `Parabéns, ${gameState.teams[0].name}!` : (isDraw ? 'Empate Técnico!' : `Vencedor: ${winner.name}`)}
+            </p>
           </div>
+
+          {/* Cards de placar */}
+          <div style={{ display: 'grid', gridTemplateColumns: gameState.isSoloMode ? '1fr' : '1fr 1fr', gap: 14, width: '100%' }}>
+            {gameState.teams.slice(0, gameState.isSoloMode ? 1 : 2).map((team) => {
+              const isWinner = !isDraw && team === winner;
+              return (
+                <div key={team.name} style={{
+                  borderRadius: 20,
+                  padding: '24px 20px',
+                  textAlign: 'center',
+                  background: isWinner ? `linear-gradient(135deg, ${team.color}, ${team.color}cc)` : 'rgba(255,255,255,0.06)',
+                  boxShadow: isWinner ? `0 0 32px ${team.color}60` : 'none',
+                  border: isWinner ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                  transition: 'all 0.3s',
+                }}>
+                  {isWinner && !gameState.isSoloMode && (
+                    <div style={{ fontSize: 10, fontWeight: 900, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                      <i className="fi fi-rr-crown" aria-hidden="true" /> Vencedor
+                    </div>
+                  )}
+                  <p style={{ fontSize: 12, fontWeight: 900, color: isWinner ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: '0 0 6px' }}>{team.name}</p>
+                  <p style={{ fontSize: 44, fontWeight: 900, color: isWinner ? '#fff' : 'rgba(255,255,255,0.3)', margin: '0 0 4px', lineHeight: 1, textShadow: isWinner ? '0 2px 12px rgba(0,0,0,0.3)' : 'none' }}>{team.score}</p>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: isWinner ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)', textTransform: 'uppercase', letterSpacing: '0.15em', margin: 0 }}>pontos</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Botão */}
+          <button
+            onClick={handleFinalize}
+            style={{ padding: '16px 40px', borderRadius: 16, background: 'transparent', border: '2px solid rgba(255,255,255,0.4)', color: '#fff', fontWeight: 900, fontSize: 15, textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            <i className="fi fi-rr-flag-checkered" aria-hidden="true" />
+            Finalizar Jogo
+          </button>
         </div>
-        {setupZoomFloatingControl}
+
         {updateDialog}
-        {appFooter}
         {loginModal}
       </div>
+    );
+  }
+
+  // ─── JSX compartilhado entre modos ────────────────────────────────────────────
+  const feedbackOverlay = gameState.showExplanation && (
+    <div
+      className="fixed inset-0 flex items-center justify-center p-3 sm:p-5 md:p-8 z-[120]"
+      style={{
+        background: gameState.explanationType === 'correct'
+          ? 'linear-gradient(135deg, #064e3b 0%, #065f46 100%)'
+          : 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)'
+      }}
+    >
+      <div className="absolute inset-0 pointer-events-none" style={{ background: gameState.explanationType === 'correct' ? 'radial-gradient(ellipse at 50% 30%, rgba(34,197,94,0.22) 0%, transparent 70%)' : 'radial-gradient(ellipse at 50% 30%, rgba(239,68,68,0.22) 0%, transparent 70%)' }} />
+      <div className="result-overlay-enter relative z-[130] max-w-lg w-full">
+        <div className="flex justify-center mb-6">
+          <div className="result-icon w-24 h-24 md:w-28 md:h-28" style={{ background: gameState.explanationType === 'correct' ? 'linear-gradient(135deg, #4ade80, #16a34a)' : 'linear-gradient(135deg, #f87171, #dc2626)', boxShadow: gameState.explanationType === 'correct' ? '0 0 0 8px rgba(74,222,128,0.2), 0 20px 40px rgba(22,163,74,0.45)' : '0 0 0 8px rgba(248,113,113,0.2), 0 20px 40px rgba(220,38,38,0.45)' }}>
+            <i className={`text-white text-4xl md:text-5xl ${gameState.explanationType === 'correct' ? 'fi fi-rr-check' : 'fi fi-rr-cross'}`} aria-hidden="true" />
+          </div>
+        </div>
+        <h4 className={`text-2xl md:text-4xl font-black text-center mb-2 uppercase tracking-tight ${gameState.explanationType === 'correct' ? 'text-green-300' : 'text-red-300'}`}>
+          {gameState.explanationType === 'correct' ? 'Correto!' : 'Errado!'}
+        </h4>
+        <p className="text-white/70 text-center text-sm md:text-base font-semibold mb-6">
+          {gameState.explanationType === 'correct'
+            ? `Muito bem, ${currentTeam.name}! +${explanationQuestion?.points ?? pointsPerQuestion} pontos`
+            : 'Não foi dessa vez. Veja a resposta correta:'}
+        </p>
+        <div className="rounded-3xl bg-white/10 backdrop-blur-sm border border-white/20 p-5 md:p-6 mb-5">
+          <p className="text-xs font-black uppercase tracking-[0.2em] mb-3 opacity-60 text-white">Resposta Correta</p>
+          {explanationQuestion ? (
+            <div className="flex items-start gap-4">
+              <span className="shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg font-black" style={{ background: gameState.explanationType === 'correct' ? 'linear-gradient(135deg, #4ade80, #16a34a)' : 'linear-gradient(135deg, #f87171, #dc2626)', color: '#fff' }}>
+                {explanationQuestion.answer}
+              </span>
+              <p className="text-lg md:text-xl font-black text-white leading-tight">{explanationQuestion.options[explanationQuestion.answer]}</p>
+            </div>
+          ) : null}
+          {explanationQuestion?.source?.reference && (
+            <div className="mt-4 pt-4 border-t border-white/15 flex items-center gap-2">
+              <i className="fi fi-rr-book-alt text-white/50" aria-hidden="true" />
+              <p className="text-xs md:text-sm font-semibold text-white/60">{explanationQuestion.source.reference}</p>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={handleNextAction} className="inline-flex flex-1 min-w-[140px] items-center justify-center gap-2 text-white font-black py-4 px-6 rounded-2xl text-sm md:text-base active:scale-95 transition-all duration-200 ease-out uppercase tracking-wider shadow-xl" style={{ background: gameState.explanationType === 'correct' ? 'linear-gradient(135deg, #22c55e, #15803d)' : 'linear-gradient(135deg, #ef4444, #b91c1c)', boxShadow: gameState.explanationType === 'correct' ? '0 5px 0 #14532d, 0 8px 20px rgba(34,197,94,0.4)' : '0 5px 0 #7f1d1d, 0 8px 20px rgba(239,68,68,0.4)' }}>
+            Próxima <i className="fi fi-rr-arrow-right" aria-hidden="true" />
+          </button>
+          <button onClick={resetToSetup} className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white/80 font-bold py-4 px-5 rounded-2xl text-sm uppercase transition-all duration-200 ease-out active:scale-95 border border-white/20">
+            <i className="fi fi-rr-home" aria-hidden="true" /> Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const confettiEl = showCorrectConfetti && (
+    <div className="pointer-events-none fixed inset-0 z-[200] overflow-hidden" aria-hidden="true">
+      {Array.from({ length: 220 }).map((_, i) => {
+        const colors = ['#ff1744','#ff6d00','#ffea00','#69f0ae','#00e5ff','#2979ff','#d500f9','#ff4081','#fff176','#40c4ff','#f06292','#aed581'];
+        const shapes = ['square','circle','triangle','star','diamond','ribbon'];
+        const color    = colors[i % colors.length];
+        const shape    = shapes[Math.floor(Math.random() * shapes.length)];
+        const size     = 7 + Math.random() * 10;
+        const startX   = 2 + Math.random() * 96;
+        const drift    = (Math.random() - 0.5) * 260;
+        const spin     = (Math.random() < 0.5 ? 1 : -1) * (280 + Math.random() * 440);
+        const duration = 2600 + Math.random() * 2000;
+        const delay    = Math.random() * 3500;
+        return (
+          <div key={`confetti-${i}`} className={`confetti-piece confetti-piece--bursting shape-${shape}`} style={{ left: `${startX}%`, '--size': `${size}px`, '--color': color, '--drift': `${drift}px`, '--spin': `${spin}deg`, '--duration': `${duration}ms`, '--delay': `${delay}ms` } as React.CSSProperties & Record<string, string>} />
+        );
+      })}
+    </div>
+  );
+
+  // ─── Modo equipes ──────────────────────────────────────────────────────────────
+  if (!gameState.isSoloMode) {
+    if (!currentQuestion) {
+      return (
+        <div style={{
+          width: '100vw', height: '100vh',
+          background: 'radial-gradient(ellipse 105% 105% at 0% 0%, #fb8500cc 0%, #fb850044 46%, transparent 63%), radial-gradient(ellipse 105% 105% at 100% 100%, #3b82f6cc 0%, #3b82f644 46%, transparent 63%), #060610',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          fontFamily: "'Montserrat', sans-serif",
+          gap: 28,
+          position: 'relative', overflow: 'hidden',
+        }}>
+
+          {/* Ícone */}
+          <div style={{
+            width: 100, height: 100, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.06)',
+            border: '2px solid rgba(255,255,255,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <i className="fi fi-rr-document" style={{ fontSize: 40, color: 'rgba(255,255,255,0.5)', lineHeight: 1 }} aria-hidden="true" />
+          </div>
+
+          {/* Texto */}
+          <div style={{ textAlign: 'center', maxWidth: 400, padding: '0 32px' }}>
+            <h2 style={{
+              fontSize: 30, fontWeight: 900, color: '#fff',
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+              marginBottom: 12, textShadow: '0 2px 16px rgba(0,0,0,0.4)',
+            }}>
+              Sem perguntas
+            </h2>
+            <p style={{
+              fontSize: 14, fontWeight: 600,
+              color: 'rgba(255,255,255,0.45)',
+              lineHeight: 1.7, margin: 0,
+            }}>
+              Nenhuma pergunta foi encontrada. Acesse o painel de gerenciamento e adicione perguntas antes de iniciar o jogo.
+            </p>
+          </div>
+
+          {/* Botão voltar */}
+          <button
+            onClick={resetToSetup}
+            style={{
+              padding: '15px 40px',
+              background: 'transparent',
+              border: '2px solid rgba(255,255,255,0.3)',
+              borderRadius: 14,
+              fontSize: 13, fontWeight: 900,
+              color: '#fff',
+              cursor: 'pointer',
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              transition: 'all 0.18s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.6)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'; }}
+          >
+            Voltar ao Painel
+          </button>
+        </div>
+      );
+    }
+
+    const toGameTeam = (t: Team, label: string): GameTeam => ({
+      label, name: t.name, score: t.score,
+      grad: `linear-gradient(135deg, ${t.color}, ${t.color}cc)`,
+      glow: t.color + '70',
+    });
+    return (
+      <>
+        <AppPerguntas
+          question={currentQuestion}
+          teams={[toGameTeam(gameState.teams[0], 'TIME'), toGameTeam(gameState.teams[1], 'TIME')]}
+          currentTeamIdx={gameState.currentTeamIndex}
+          onConfirm={handlePerguntasAnswer}
+          onFinish={resetToSetup}
+          onTimerStart={() => {
+            const audio = new Audio(tenSecondsAudioTrack);
+            audio.volume = teamClockVolume / 100;
+            tenSecondsAudioRef.current = audio;
+            void audio.play().catch(() => {});
+          }}
+          questionFontFamily={questionFontFamily}
+          questionFontSize={responsiveQuestionFontSize}
+          answerFontFamily={answerFontFamily}
+          answerFontSize={responsiveAnswerFontSize}
+        />
+        {feedbackOverlay}
+        {confettiEl}
+      </>
+    );
+  }
+
+  // ─── Modo solo – tela de perguntas ────────────────────────────────────────────
+  if (currentQuestion) {
+    const toSoloTeam = (t: Team): GameTeam => ({
+      label: 'JOGADOR',
+      name: t.name,
+      score: t.score,
+      grad: `linear-gradient(135deg, ${t.color}, ${t.color}cc)`,
+      glow: t.color + '70',
+    });
+    return (
+      <>
+        <AppPergSolo
+          question={currentQuestion}
+          team={toSoloTeam(gameState.teams[0])}
+          onConfirm={handlePerguntasAnswer}
+          onFinish={resetToSetup}
+          onTimerStart={() => {
+            const audio = new Audio(tenSecondsAudioTrack);
+            audio.volume = teamClockVolume / 100;
+            tenSecondsAudioRef.current = audio;
+            void audio.play().catch(() => {});
+          }}
+          questionFontFamily={questionFontFamily}
+          questionFontSize={responsiveQuestionFontSize}
+          answerFontFamily={answerFontFamily}
+          answerFontSize={responsiveAnswerFontSize}
+        />
+        {feedbackOverlay}
+        {confettiEl}
+      </>
     );
   }
 
@@ -5869,180 +6046,9 @@ const App: React.FC = () => {
 
       </div>
 
-      {/* AppPerguntas – tela de jogo em modo dupla (z-50, abaixo do overlay de explicação z-120) */}
-      {!gameState.isSoloMode && currentQuestion && (() => {
-        const toGameTeam = (t: Team, label: string): GameTeam => ({
-          label,
-          name: t.name,
-          score: t.score,
-          grad: `linear-gradient(135deg, ${t.color}, ${t.color}cc)`,
-          glow: t.color + '70',
-        });
-        return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 50 }}>
-            <AppPerguntas
-              question={currentQuestion}
-              teams={[
-                toGameTeam(gameState.teams[0], 'EQUIPE A'),
-                toGameTeam(gameState.teams[1], 'EQUIPE B'),
-              ]}
-              currentTeamIdx={gameState.currentTeamIndex}
-              onConfirm={handlePerguntasAnswer}
-              onFinish={resetToSetup}
-              onTimerStart={() => {
-                const audio = new Audio(tenSecondsAudioTrack);
-                audio.volume = teamClockVolume / 100;
-                tenSecondsAudioRef.current = audio;
-                void audio.play().catch(() => {});
-              }}
-            />
-          </div>
-        );
-      })()}
+      {feedbackOverlay}
 
-      {/* Feedback Overlay */}
-      {gameState.showExplanation && (
-        <div
-          className="fixed inset-0 flex items-center justify-center p-3 sm:p-5 md:p-8 z-[120]"
-          style={{
-            background: gameState.explanationType === 'correct'
-              ? 'linear-gradient(135deg, #064e3b 0%, #065f46 100%)'
-              : 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)'
-          }}
-        >
-          {/* Efeito de brilho radial de fundo */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: gameState.explanationType === 'correct'
-                ? 'radial-gradient(ellipse at 50% 30%, rgba(34,197,94,0.22) 0%, transparent 70%)'
-                : 'radial-gradient(ellipse at 50% 30%, rgba(239,68,68,0.22) 0%, transparent 70%)'
-            }}
-          />
-
-          <div className="result-overlay-enter relative z-[130] max-w-lg w-full">
-            {/* Ícone central */}
-            <div className="flex justify-center mb-6">
-              <div
-                className="result-icon w-24 h-24 md:w-28 md:h-28"
-                style={{
-                  background: gameState.explanationType === 'correct'
-                    ? 'linear-gradient(135deg, #4ade80, #16a34a)'
-                    : 'linear-gradient(135deg, #f87171, #dc2626)',
-                  boxShadow: gameState.explanationType === 'correct'
-                    ? '0 0 0 8px rgba(74,222,128,0.2), 0 20px 40px rgba(22,163,74,0.45)'
-                    : '0 0 0 8px rgba(248,113,113,0.2), 0 20px 40px rgba(220,38,38,0.45)'
-                }}
-              >
-                <i
-                  className={`text-white text-4xl md:text-5xl ${gameState.explanationType === 'correct' ? 'fi fi-rr-check' : 'fi fi-rr-cross'}`}
-                  aria-hidden="true"
-                />
-              </div>
-            </div>
-
-            {/* Título */}
-            <h4 className={`text-2xl md:text-4xl font-black text-center mb-2 uppercase tracking-tight ${gameState.explanationType === 'correct' ? 'text-green-300' : 'text-red-300'}`}>
-              {gameState.explanationType === 'correct' ? 'Correto!' : 'Errado!'}
-            </h4>
-            <p className="text-white/70 text-center text-sm md:text-base font-semibold mb-6">
-              {gameState.explanationType === 'correct'
-                ? `Muito bem, ${currentTeam.name}! +${explanationQuestion?.points ?? pointsPerQuestion} pontos`
-                : 'Não foi dessa vez. Veja a resposta correta:'}
-            </p>
-
-            {/* Card da resposta */}
-            <div className="rounded-3xl bg-white/10 backdrop-blur-sm border border-white/20 p-5 md:p-6 mb-5">
-              <p className="text-xs font-black uppercase tracking-[0.2em] mb-3 opacity-60 text-white">Resposta Correta</p>
-              {explanationQuestion ? (
-                <div className="flex items-start gap-4">
-                  <span
-                    className="shrink-0 w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-base md:text-lg font-black"
-                    style={{
-                      background: gameState.explanationType === 'correct'
-                        ? 'linear-gradient(135deg, #4ade80, #16a34a)'
-                        : 'linear-gradient(135deg, #f87171, #dc2626)',
-                      color: '#fff'
-                    }}
-                  >
-                    {explanationQuestion.answer}
-                  </span>
-                  <p className="text-lg md:text-xl font-black text-white leading-tight">
-                    {explanationQuestion.options[explanationQuestion.answer]}
-                  </p>
-                </div>
-              ) : null}
-
-              {explanationQuestion?.source?.reference && (
-                <div className="mt-4 pt-4 border-t border-white/15 flex items-center gap-2">
-                  <i className="fi fi-rr-book-alt text-white/50" aria-hidden="true" />
-                  <p className="text-xs md:text-sm font-semibold text-white/60">
-                    {explanationQuestion.source.reference}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Botões de ação */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
-                onClick={handleNextAction}
-                className="inline-flex flex-1 min-w-[140px] items-center justify-center gap-2 text-white font-black py-4 px-6 rounded-2xl text-sm md:text-base active:scale-95 transition-all duration-200 ease-out uppercase tracking-wider shadow-xl"
-                style={{
-                  background: gameState.explanationType === 'correct'
-                    ? 'linear-gradient(135deg, #22c55e, #15803d)'
-                    : 'linear-gradient(135deg, #ef4444, #b91c1c)',
-                  boxShadow: gameState.explanationType === 'correct'
-                    ? '0 5px 0 #14532d, 0 8px 20px rgba(34,197,94,0.4)'
-                    : '0 5px 0 #7f1d1d, 0 8px 20px rgba(239,68,68,0.4)'
-                }}
-              >
-                Próxima
-                <i className="fi fi-rr-arrow-right" aria-hidden="true" />
-              </button>
-              <button
-                onClick={resetToSetup}
-                className="inline-flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white/80 font-bold py-4 px-5 rounded-2xl text-sm uppercase transition-all duration-200 ease-out active:scale-95 border border-white/20"
-              >
-                <i className="fi fi-rr-home" aria-hidden="true" />
-                Sair
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCorrectConfetti && (
-        <div className="pointer-events-none fixed inset-0 z-[200] overflow-hidden" aria-hidden="true">
-          {Array.from({ length: 220 }).map((_, i) => {
-            const colors = ['#ff1744','#ff6d00','#ffea00','#69f0ae','#00e5ff','#2979ff','#d500f9','#ff4081','#fff176','#40c4ff','#f06292','#aed581'];
-            const shapes = ['square','circle','triangle','star','diamond','ribbon'];
-            const color    = colors[i % colors.length];
-            const shape    = shapes[Math.floor(Math.random() * shapes.length)];
-            const size     = 7 + Math.random() * 10;
-            const startX   = 2 + Math.random() * 96;
-            const drift    = (Math.random() - 0.5) * 260;
-            const spin     = (Math.random() < 0.5 ? 1 : -1) * (280 + Math.random() * 440);
-            const duration = 2600 + Math.random() * 2000;
-            const delay    = Math.random() * 3500;
-            return (
-              <div
-                key={`confetti-${i}`}
-                className={`confetti-piece confetti-piece--bursting shape-${shape}`}
-                style={{
-                  left: `${startX}%`,
-                  '--size':     `${size}px`,
-                  '--color':    color,
-                  '--drift':    `${drift}px`,
-                  '--spin':     `${spin}deg`,
-                  '--duration': `${duration}ms`,
-                  '--delay':    `${delay}ms`,
-                } as React.CSSProperties & Record<string, string>}
-              />
-            );
-          })}
-        </div>
-      )}
+      {confettiEl}
 
       {showSettings && showQuestionBuilder && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 md:p-6 bg-black/60 backdrop-blur-sm">

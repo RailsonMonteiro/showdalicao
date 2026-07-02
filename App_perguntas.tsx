@@ -16,6 +16,10 @@ export interface AppPerguntasProps {
   onConfirm?: (answer: QuestionOptionKey) => void;
   onFinish?: () => void;
   onTimerStart?: () => void;
+  questionFontFamily?: string;
+  questionFontSize?: string;
+  answerFontFamily?: string;
+  answerFontSize?: string;
 }
 
 // ─── Theme (matches default "ocean" theme from App.tsx) ────────────────────────
@@ -86,7 +90,7 @@ const DEMO_QUESTION = {
 
 const DEMO_TEAMS = [
   { label: 'EQUIPE A', name: 'JOÃO',  score: 1200, grad: 'linear-gradient(135deg, #f97316, #ea580c)', glow: 'rgba(249,115,22,0.45)' },
-  { label: 'EQUIPE B', name: 'MARIA', score: 950,  grad: 'linear-gradient(135deg, #a855f7, #7c3aed)', glow: 'rgba(168,85,247,0.45)' },
+  { label: 'TIME',     name: 'Laranja', score: 950, grad: 'linear-gradient(135deg, #fb8500, #ea6c00)', glow: 'rgba(251,133,0,0.45)' },
 ];
 
 
@@ -153,9 +157,9 @@ function SidebarBtn({
 // ─── Answer option button ──────────────────────────────────────────────────────
 
 function AnswerBtn({
-  letter, text, selected, onClick,
+  letter, text, selected, accentColor, fontFamily, fontSize, onClick,
 }: {
-  letter: QuestionOptionKey; text: string; selected: boolean; onClick: () => void;
+  letter: QuestionOptionKey; text: string; selected: boolean; accentColor: string; fontFamily?: string; fontSize?: string; onClick: () => void;
 }) {
   const [hov, setHov] = useState(false);
   return (
@@ -187,7 +191,7 @@ function AnswerBtn({
       {/* Letter badge */}
       <div style={{
         width: 40, height: 40, borderRadius: '50%', flexShrink: 0,
-        background: selected ? '#16a34a' : THEME.gradientEnd,
+        background: selected ? '#16a34a' : accentColor,
         border: `2px solid ${selected ? '#16a34a' : 'rgba(255,255,255,0.3)'}`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 15, fontWeight: 900,
@@ -199,8 +203,10 @@ function AnswerBtn({
       </div>
       {/* Answer text */}
       <span style={{
-        fontSize: 14, fontWeight: 700,
-        color: selected ? '#15803d' : '#0e5a70',
+        fontWeight: 700,
+        color: selected ? '#15803d' : '#1e293b',
+        fontFamily: fontFamily,
+        fontSize: fontSize,
         flex: 1,
       }}>
         {text}
@@ -329,9 +335,17 @@ export default function AppPerguntas({
   onConfirm,
   onFinish,
   onTimerStart,
+  questionFontFamily = 'Montserrat, sans-serif',
+  questionFontSize = '20px',
+  answerFontFamily = 'Montserrat, sans-serif',
+  answerFontSize = '14px',
 }: AppPerguntasProps = {}) {
   const question = questionProp ?? DEMO_QUESTION;
   const teams    = teamsProp    ?? DEMO_TEAMS;
+
+  const getBaseColor = (grad: string) => { const m = grad.match(/#[0-9a-fA-F]{6}/); return m ? m[0] : '#888'; };
+  const c1 = teams[0] ? getBaseColor(teams[0].grad) : '#3b82f6';
+  const c2 = teams[1] ? getBaseColor(teams[1].grad) : '#f97316';
 
   const [selected, setSelected] = useState<QuestionOptionKey | null>(null);
   const [timeLeft, setTimeLeft] = useState(10);
@@ -369,7 +383,7 @@ export default function AppPerguntas({
   return (
     <div style={{
       width: '100vw', height: '100vh',
-      background: `linear-gradient(135deg, ${THEME.gradientStart} 0%, ${THEME.gradientEnd} 100%)`,
+      background: `radial-gradient(ellipse 105% 105% at 0% 0%, #fb8500cc 0%, #fb850044 46%, transparent 63%), radial-gradient(ellipse 105% 105% at 100% 100%, ${c1}cc 0%, ${c1}44 46%, transparent 63%), #060610`,
       display: 'flex', overflow: 'hidden',
       fontFamily: "'Montserrat', sans-serif",
       position: 'relative',
@@ -407,46 +421,47 @@ export default function AppPerguntas({
         flex: 1,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
-        padding: '20px 48px 24px', gap: 32,
+        padding: '80px 48px 24px', gap: 20,
         position: 'relative', zIndex: 1,
       }}>
 
         {/* Team scores + Timer */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           {teams.slice(0, 1).map((t, i) => {
+            const isActive = currentTeamIdx === 0;
+            const baseColor = getBaseColor(t.grad);
             return (
               <div key={i} style={{
-                background: t.grad,
+                background: isActive ? t.grad : '#fff',
                 borderRadius: 18,
                 padding: '18px 40px',
                 textAlign: 'center',
                 minWidth: 185,
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: `0 4px 16px ${t.glow}`,
-                transition: 'box-shadow 0.3s',
+                boxShadow: isActive ? `0 4px 16px ${t.glow}` : `0 4px 16px rgba(0,0,0,0.1)`,
                 border: 'none',
+                transition: 'all 0.3s',
               }}>
-                {/* Shine overlay */}
-                {/* Active indicator */}
                 <div style={{
-                  fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
+                  fontSize: 10, fontWeight: 700,
+                  color: isActive ? 'rgba(255,255,255,0.7)' : `${baseColor}99`,
                   letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 4,
                 }}>
                   {t.label}
                 </div>
                 <div style={{
-                  fontSize: 26, fontWeight: 900, color: '#fff',
+                  fontSize: 26, fontWeight: 900,
+                  color: isActive ? '#fff' : baseColor,
                   lineHeight: 1.1, letterSpacing: '-0.01em',
-                  textShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                  textShadow: isActive ? '0 2px 10px rgba(0,0,0,0.2)' : 'none',
                 }}>
                   {t.name}
                 </div>
                 <div style={{
                   fontSize: 17, fontWeight: 800,
-                  color: 'rgba(255,255,255,0.88)',
-                  marginTop: 4,
-                  letterSpacing: '0.04em',
+                  color: isActive ? 'rgba(255,255,255,0.88)' : `${baseColor}cc`,
+                  marginTop: 4, letterSpacing: '0.04em',
                 }}>
                   {t.score.toLocaleString('pt-BR')} pts
                 </div>
@@ -455,45 +470,54 @@ export default function AppPerguntas({
           })}
 
           {/* Liquid Timer – between the two score cards */}
-          <LiquidTimer
-            timeLeft={timeLeft}
-            maxTime={MAX_TIME}
-            isRunning={timerRunning}
-            onStart={startTimer}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <LiquidTimer
+              timeLeft={timeLeft}
+              maxTime={MAX_TIME}
+              isRunning={timerRunning}
+              onStart={startTimer}
+            />
+            <div style={{ fontSize: 64, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, position: 'relative', zIndex: 999, marginTop: 0 }}>
+              <span style={{ color: '#fb8500', textShadow: '0 0 12px #fb8500bb, 0 0 30px #fb850077' }}>V</span>
+              <span style={{ color: c1, textShadow: `0 0 12px ${c1}bb, 0 0 30px ${c1}77` }}>S</span>
+            </div>
+          </div>
 
           {teams.slice(1).map((t, i) => {
+            const isActive = currentTeamIdx === i + 1;
+            const baseColor = getBaseColor(t.grad);
             return (
               <div key={i + 1} style={{
-                background: t.grad,
+                background: isActive ? t.grad : '#fff',
                 borderRadius: 18,
                 padding: '18px 40px',
                 textAlign: 'center',
                 minWidth: 185,
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: `0 4px 16px ${t.glow}`,
-                transition: 'box-shadow 0.3s',
+                boxShadow: isActive ? `0 4px 16px ${t.glow}` : `0 4px 16px rgba(0,0,0,0.1)`,
                 border: 'none',
+                transition: 'all 0.3s',
               }}>
                 <div style={{
-                  fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
+                  fontSize: 10, fontWeight: 700,
+                  color: isActive ? 'rgba(255,255,255,0.7)' : `${baseColor}99`,
                   letterSpacing: '0.16em', textTransform: 'uppercase', marginBottom: 4,
                 }}>
                   {t.label}
                 </div>
                 <div style={{
-                  fontSize: 26, fontWeight: 900, color: '#fff',
+                  fontSize: 26, fontWeight: 900,
+                  color: isActive ? '#fff' : baseColor,
                   lineHeight: 1.1, letterSpacing: '-0.01em',
-                  textShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                  textShadow: isActive ? '0 2px 10px rgba(0,0,0,0.2)' : 'none',
                 }}>
                   {t.name}
                 </div>
                 <div style={{
                   fontSize: 17, fontWeight: 800,
-                  color: 'rgba(255,255,255,0.88)',
-                  marginTop: 4,
-                  letterSpacing: '0.04em',
+                  color: isActive ? 'rgba(255,255,255,0.88)' : `${baseColor}cc`,
+                  marginTop: 4, letterSpacing: '0.04em',
                 }}>
                   {t.score.toLocaleString('pt-BR')} pts
                 </div>
@@ -503,49 +527,51 @@ export default function AppPerguntas({
         </div>
 
 
-        {/* Question card – hexagonal shape */}
-        <div style={{
-          width: '100%', maxWidth: 820,
-          filter: 'drop-shadow(0 10px 32px rgba(0,0,0,0.22))',
-        }}>
-          {/* Outer border layer – teal accent */}
+        {/* Question card + answers grouped */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, width: '100%' }}>
+
+          {/* Question card – hexagonal shape */}
           <div style={{
-            background: `linear-gradient(135deg, ${THEME.gradientEnd}, ${THEME.primary})`,
-            clipPath: 'polygon(22px 0%, calc(100% - 22px) 0%, 100% 50%, calc(100% - 22px) 100%, 22px 100%, 0% 50%)',
-            padding: '3px',
+            width: '100%', maxWidth: 820,
+            filter: 'drop-shadow(0 10px 32px rgba(0,0,0,0.22))',
           }}>
-            {/* Inner card – white solid for readability */}
             <div style={{
-              background: '#fff',
+              background: getBaseColor(teams[currentTeamIdx]?.grad ?? teams[0].grad),
               clipPath: 'polygon(22px 0%, calc(100% - 22px) 0%, 100% 50%, calc(100% - 22px) 100%, 22px 100%, 0% 50%)',
-              padding: '36px 88px',
-              textAlign: 'center',
+              padding: '3px',
             }}>
-              {/* Question text */}
               <div style={{
-                fontSize: 20, fontWeight: 800,
-                color: '#0c3547', lineHeight: 1.45,
+                background: '#fff',
+                clipPath: 'polygon(22px 0%, calc(100% - 22px) 0%, 100% 50%, calc(100% - 22px) 100%, 22px 100%, 0% 50%)',
+                padding: '36px 88px',
+                textAlign: 'center',
               }}>
-                {question.question}
+                <div style={{ fontSize: questionFontSize, fontFamily: questionFontFamily, fontWeight: 800, color: '#0c3547', lineHeight: 1.45 }}>
+                  {question.question}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Answer buttons – 2 × 2 grid */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr',
-          gap: 11, width: '100%', maxWidth: 710,
-        }}>
-          {optionKeys.map(k => (
-            <AnswerBtn
-              key={k}
-              letter={k}
-              text={question.options[k]!}
-              selected={selected === k}
-              onClick={() => setSelected(k)}
-            />
-          ))}
+          {/* Answer buttons – 2 × 2 grid */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr',
+            gap: 11, width: '100%', maxWidth: 710,
+          }}>
+            {optionKeys.map(k => (
+              <AnswerBtn
+                key={k}
+                letter={k}
+                text={question.options[k]!}
+                selected={selected === k}
+                accentColor={THEME.gradientEnd}
+                fontFamily={answerFontFamily}
+                fontSize={answerFontSize}
+                onClick={() => setSelected(k)}
+              />
+            ))}
+          </div>
+
         </div>
 
         {/* Confirm button */}
@@ -592,8 +618,7 @@ export default function AppPerguntas({
             color: 'rgba(255,255,255,0.4)',
             cursor: 'pointer',
             letterSpacing: '0.1em', textTransform: 'uppercase',
-            textDecoration: 'underline',
-            textUnderlineOffset: 3,
+            textDecoration: 'none',
             transition: 'color 0.18s',
           }}
           onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,0.75)')}

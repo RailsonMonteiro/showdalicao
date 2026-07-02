@@ -511,8 +511,7 @@ input[type='range']::-moz-range-thumb {
 }
 
 .podium-card {
-  animation: podium-rise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-  opacity: 0;
+  animation: podium-rise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 /* ─── Ranking: glow dourado ─── */
@@ -521,8 +520,10 @@ input[type='range']::-moz-range-thumb {
   50%       { box-shadow: 0 0 0 6px rgba(251,191,36,0), 0 8px 32px rgba(251,191,36,0.5); }
 }
 
-.gold-glow {
-  animation: gold-glow 2.5s ease-in-out infinite;
+/* .gold-glow sozinho sobrescreveria podium-rise; a regra mais específica combina ambos */
+.podium-card.gold-glow {
+  animation: podium-rise 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+             gold-glow 2.5s 0.5s ease-in-out infinite;
 }
 
 /* ─── Ranking: barra de score ─── */
